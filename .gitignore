@@ -1,0 +1,86 @@
+# === LegoVision .gitignore ===
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# --- Jupyter ---
+.ipynb_checkpoints/
+*.ipynb
+
+# --- Datos pesados: LDraw library (~500MB) ---
+# Descargar con: scripts/download_ldraw.sh
+data/ldraw/
+
+# --- Datasets generados (imágenes renderizadas por Blender) ---
+data/raw_dataset/
+data/processed_dataset/
+data/test_dataset/
+data/temp_inference_run/
+data/tmp/
+
+# --- Modelos entrenados y pesos ---
+*.pt
+*.pth
+*.onnx
+*.engine
+*.weights
+models/
+
+# --- Resultados de entrenamiento YOLO ---
+runs/
+
+# --- Archivos de imagen generados (crops, renders temporales, etc.) ---
+scratch/*.png
+scratch/*.jpg
+scratch/*.jpeg
+
+# --- Blender temporales ---
+*.blend1
+*.blend2
+/tmp/
+
+# --- Supabase / Docker ---
+.supabase/
+docker-volumes/
+
+# --- Secrets y variables de entorno ---
+.env
+.env.local
+.env.production
+.env.staging
+*.key
+*.pem
+*.secret
+
+# --- macOS ---
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+.Spotlight-V100
+.Trashes
+
+# --- IDE ---
+.vscode/
+.idea/
+*.swp
+*.swo
+*.orig
+
+# --- Logs ---
+*.log
+logs/

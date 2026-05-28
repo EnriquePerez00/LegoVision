@@ -1,0 +1,32 @@
+# LegoVision — Dependencias Training (Lightning AI / NVIDIA T4)
+# Instalar en el entorno de Lightning AI
+
+# PyTorch CUDA (T4 = CUDA 11.8 / 12.1)
+torch>=2.3.0
+torchvision>=0.18.0
+# Nota: usar el wheel oficial de CUDA:
+# pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+
+# YOLOv8
+ultralytics>=8.2.0
+
+# Lightning AI
+lightning>=2.3.0
+pytorch-lightning>=2.3.0
+
+# Dataset utils
+albumentations>=1.4.0
+opencv-python-headless>=4.9.0
+numpy>=1.26.0
+pillow>=10.0.0
+tqdm>=4.66.0
+pyyaml>=6.0.1
+python-dotenv>=1.0.0
+
+# Logging / Monitoring
+wandb>=0.17.0       # opcional — para tracking de experimentos
+tensorboard>=2.17.0
+
+# Optimización T4
+onnx>=1.16.0
+onnxruntime-gpu>=1.18.0

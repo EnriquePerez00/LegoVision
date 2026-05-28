@@ -1,0 +1,29 @@
+# LegoVision — Dependencias Base (macOS M4 / desarrollo local)
+# Instalar con: pip install -r requirements.txt
+
+# Base
+python-dotenv>=1.0.0
+numpy>=1.26.0
+pillow>=10.0.0
+tqdm>=4.66.0
+requests>=2.31.0
+
+# Base de datos
+psycopg2-binary>=2.9.9
+
+# API de inferencia
+fastapi>=0.111.0
+uvicorn[standard]>=0.29.0
+python-multipart>=0.0.9
+websockets>=12.0
+
+# GUI
+pywebview>=5.0.0
+
+# Visión / Inferencia (instalar después de PyTorch)
+# ultralytics>=8.2.0   # YOLOv8 — instalar por separado
+# opencv-python>=4.9.0
+
+# Utilidades
+pydantic>=2.7.0
+loguru>=0.7.2

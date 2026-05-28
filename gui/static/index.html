@@ -1,0 +1,530 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LegoVision — Dashboard de Clasificación Industrial</title>
+    <meta name="description" content="LegoVision: sistema de visión artificial para clasificación de piezas LEGO sobre cinta transportadora con detección YOLO y clasificación DINOv2.">
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <!-- ══════════════════════════════════════════════
+         DRAWER LATERAL — Clasificación DINOv2
+         (aparece al hacer click sobre una bbox detectada)
+         ══════════════════════════════════════════════ -->
+    <div id="classifier-overlay"></div>
+    <aside id="classifier-drawer">
+        <div class="drawer-header">
+            <h3>Clasificación DINOv2</h3>
+            <button id="btn-close-drawer" title="Cerrar">✕</button>
+        </div>
+        <div class="drawer-body" id="drawer-body">
+            <!-- Estado inicial / loading -->
+            <div class="drawer-loading" id="drawer-loading">
+                <div class="drawer-spinner"></div>
+                <span>Clasificando pieza…</span>
+            </div>
+
+            <!-- Resultado (oculto hasta tener datos) -->
+            <div id="drawer-result" style="display:none; flex-direction:column; gap:18px;">
+                <!-- Imágenes: crop detectado vs render de referencia -->
+                <div class="drawer-images-row">
+                    <div class="drawer-img-box">
+                        <span>Pieza detectada</span>
+                        <img id="drawer-crop-img" src="" alt="Crop detectado">
+                    </div>
+                    <div class="drawer-img-box">
+                        <span>Referencia LDraw</span>
+                        <div id="drawer-ref-wrap">
+                            <div class="drawer-img-placeholder">Sin render</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Nombre y referencia -->
+                <div>
+                    <div class="drawer-part-name" id="drawer-part-name">—</div>
+                    <div class="drawer-part-ref" id="drawer-part-ref">—</div>
+                </div>
+
+                <!-- Barra de confianza -->
+                <div class="confidence-section">
+                    <div class="confidence-label-row">
+                        <span>Similitud coseno</span>
+                        <span class="confidence-value" id="drawer-confidence">0%</span>
+                    </div>
+                    <div class="confidence-bar-track">
+                        <div class="confidence-bar-fill" id="drawer-conf-bar"></div>
+                    </div>
+                </div>
+
+                <!-- Top-3 candidatos -->
+                <div>
+                    <div class="drawer-section-title">Top 3 candidatos</div>
+                    <div class="candidate-list" id="candidate-list">
+                        <!-- Renderizado dinámico -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- Estado sin embeddings -->
+            <div id="drawer-no-embeddings" style="display:none;">
+                <div class="drawer-loading">
+                    <span style="font-size:2rem">🔍</span>
+                    <span style="text-align:center;">Embeddings DINOv2 no indexados.<br>Ve al panel de <strong>Entrenamiento</strong> y ejecuta el paso 2.</span>
+                </div>
+            </div>
+        </div>
+    </aside>
+
+    <!-- ══════════════════════════════════════════════
+         MODAL POP-UP — Clasificación DINOv2
+         ══════════════════════════════════════════════ -->
+    <div id="classifier-modal">
+        <div class="modal-header">
+            <h3>Clasificación Detallada (DINOv2)</h3>
+            <button class="modal-close-btn" id="btn-close-modal" title="Cerrar">✕</button>
+        </div>
+        <div class="modal-body">
+            <!-- Loading -->
+            <div id="modal-loading" class="drawer-loading">
+                <div class="drawer-spinner"></div>
+                <span>Analizando similitud con DINOv2...</span>
+            </div>
+
+            <!-- Resultado -->
+            <div id="modal-result" style="display: none; flex-direction: column; gap: 16px;">
+                <div class="modal-images-row">
+                    <div class="modal-img-box">
+                        <span>Recorte</span>
+                        <img id="modal-crop-img" src="" alt="Recorte de pieza">
+                    </div>
+                    <div class="modal-img-box">
+                        <span>Render LDraw</span>
+                        <div id="modal-ref-wrap" style="width:100%; display:flex; justify-content:center; align-items:center;">
+                            <div class="drawer-img-placeholder">Sin Imagen</div>
+                        </div>
+                    </div>
+                    <div class="modal-img-box">
+                        <span>BrickLink</span>
+                        <div id="modal-bricklink-wrap" style="width:100%; display:flex; justify-content:center; align-items:center;">
+                            <div class="drawer-img-placeholder">Sin Imagen</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="modal-info-block">
+                    <div class="modal-part-name" id="modal-part-name">Nombre de pieza</div>
+                    <div class="modal-part-ref" id="modal-part-ref">Referencia LDraw: —</div>
+                    <div class="modal-part-color" id="modal-part-color" style="display: flex; align-items: center; gap: 8px; margin-top: 4px; font-size: 0.9rem; color: var(--text-secondary);">
+                        <span>Color:</span>
+                        <span id="modal-color-badge" style="width: 14px; height: 14px; border-radius: 50%; border: 1px solid #475569; display: inline-block;"></span>
+                        <span id="modal-color-text">—</span>
+                    </div>
+                    <div class="modal-part-bricklink" style="margin-top: 6px; font-size: 0.85rem;">
+                        <a id="modal-bricklink-url" href="#" target="_blank" style="color: #38bdf8; text-decoration: underline; display: flex; align-items: center; gap: 4px; width: fit-content;">
+                            <span>🌐 Ver en Catálogo BrickLink</span>
+                        </a>
+                    </div>
+                </div>
+
+                <div class="confidence-section">
+                    <div class="modal-confidence-label">
+                        <span>Grado de Confianza (Similitud Coseno)</span>
+                        <span class="modal-confidence-value" id="modal-confidence">0%</span>
+                    </div>
+                    <div class="modal-confidence-bar-track" style="margin-top: 6px;">
+                        <div class="modal-confidence-bar-fill" id="modal-conf-bar"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Sin embeddings -->
+            <div id="modal-no-embeddings" style="display: none;">
+                <div class="modal-no-embeddings">
+                    <span style="font-size:2rem">🔍</span>
+                    <span>Embeddings DINOv2 no indexados.<br>Ve al panel de Entrenamiento e indexa los vectores.</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="app-layout">
+        <!-- ══════════ SIDEBAR ══════════ -->
+        <aside id="sidebar">
+            <div class="logo-container">
+                <div class="logo-icon"></div>
+                <h1 class="logo-text">LegoVision</h1>
+            </div>
+            
+            <nav class="nav-menu">
+                <a class="nav-item active" data-view="dashboard" id="nav-dashboard">
+                    <span>🏠</span> Dashboard
+                </a>
+                <a class="nav-item" data-view="liveview" id="nav-liveview">
+                    <span>📹</span> Vista en Vivo
+                </a>
+                <a class="nav-item" data-view="setsearch" id="nav-setsearch">
+                    <span>🧱</span> Sets Reales
+                </a>
+                <a class="nav-item" data-view="training" id="nav-training">
+                    <span>🤖</span> Entrenamiento
+                </a>
+                <a class="nav-item" data-view="statistics" id="nav-statistics">
+                    <span>📊</span> Estadísticas
+                </a>
+                <a class="nav-item" data-view="config" id="nav-config">
+                    <span>⚙️</span> Configuración
+                </a>
+            </nav>
+            
+            <div class="system-status">
+                <div class="status-indicator">
+                    <div id="db-status-dot" class="dot"></div>
+                    <span id="db-status-text">Base de datos Offline</span>
+                </div>
+            </div>
+        </aside>
+
+        <!-- ══════════ MAIN CONTENT ══════════ -->
+        <main id="main-content">
+
+            <!-- ── VISTA: DASHBOARD ── -->
+            <section id="view-dashboard" class="page-view active">
+                <div class="dashboard-header">
+                    <h2 class="dashboard-title">Resumen de Clasificación</h2>
+                    <span id="session-badge" class="piece-conf low">Sin Sesión Activa</span>
+                </div>
+                
+                <div class="grid-metrics">
+                    <div class="metric-card">
+                        <span class="metric-label">Piezas Detectadas</span>
+                        <span id="metric-total-pieces" class="metric-value">0</span>
+                    </div>
+                    <div class="metric-card">
+                        <span class="metric-label">Tasa de Inferencia</span>
+                        <span id="metric-fps" class="metric-value">0.0 FPS</span>
+                    </div>
+                    <div class="metric-card">
+                        <span class="metric-label">Clases Únicas</span>
+                        <span id="metric-classes" class="metric-value">0</span>
+                    </div>
+                    <div class="metric-card">
+                        <span class="metric-label">Precisión Media</span>
+                        <span id="metric-confidence" class="metric-value">0.0%</span>
+                    </div>
+                </div>
+
+                <div class="main-view-grid">
+                    <div class="glass-panel">
+                        <h3 class="panel-header">Detecciones Recientes</h3>
+                        <div id="recent-detections-list" class="recent-list">
+                            <div class="recent-item">
+                                <div class="piece-info">
+                                    <span class="piece-class">Cargando...</span>
+                                    <span class="piece-name">Esperando datos</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="glass-panel">
+                        <h3 class="panel-header">Distribución por Clases</h3>
+                        <div id="top-classes-list" class="recent-list">
+                            <div class="recent-item">
+                                <div class="piece-info">
+                                    <span class="piece-class">Cargando...</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+            <!-- ── VISTA: VISTA EN VIVO ── -->
+            <section id="view-liveview" class="page-view">
+                <div class="dashboard-header">
+                    <h2 class="dashboard-title">Monitoreo de Cámara en Vivo</h2>
+                </div>
+
+                <div class="glass-panel" style="padding-bottom: 12px; display: flex; gap: 24px; align-items: center; flex-wrap: wrap;">
+                    <!-- Slider de velocidad de cinta -->
+                    <div class="speed-slider-wrap" style="flex: 1; min-width: 200px; display: flex; align-items: center; gap: 12px; margin: 0;">
+                        <label style="white-space: nowrap; margin: 0;">🏃 Velocidad:</label>
+                        <input type="range" id="belt-speed-slider" min="1" max="10" step="0.5" value="4" style="flex: 1; margin: 0;">
+                        <span id="speed-value-display" style="white-space: nowrap; min-width: 65px; text-align: right; margin: 0;">4.0 m/min</span>
+                    </div>
+                    <!-- Selector de set target -->
+                    <div class="set-selector-wrap" style="flex: 1.5; min-width: 300px; display: flex; align-items: center; gap: 12px;">
+                        <label for="select-target-set" style="white-space: nowrap; color: var(--text-secondary); font-size: 0.9rem; font-weight: 500;">🎯 Set Objetivo:</label>
+                        <select id="select-target-set" style="flex: 1; background: rgba(30, 41, 59, 0.7); border: 1px solid var(--border); border-radius: 6px; color: #fff; padding: 6px 12px; font-family: Outfit, sans-serif; font-size: 0.9rem; outline: none; cursor: pointer; transition: var(--transition);">
+                            <option value="75078-1" selected>75078-1 - Imperial Troop Transport (40 piezas)</option>
+                            <option value="75280-1">75280-1 - 501st Legion Clone Troopers (285 piezas)</option>
+                            <option value="75218-1">75218-1 - X-Wing Starfighter (730 piezas)</option>
+                            <option value="75337-1">75337-1 - AT-TE Walker (1082 piezas)</option>
+                        </select>
+                    </div>
+                    <!-- Slider de Umbral de Confianza (Confidence Threshold) -->
+                    <div class="conf-slider-wrap" style="flex: 1; min-width: 200px; display: flex; align-items: center; gap: 12px; margin: 0;">
+                        <label style="white-space: nowrap; margin: 0;">🛡️ Confianza:</label>
+                        <input type="range" id="live-conf-slider" min="0.10" max="0.95" step="0.05" value="0.30" style="flex: 1; margin: 0;">
+                        <span id="live-conf-value" style="white-space: nowrap; min-width: 45px; text-align: right; margin: 0;">30%</span>
+                    </div>
+                </div>
+
+                <div class="main-view-grid">
+                    <!-- Feed de la cámara -->
+                    <div class="glass-panel" style="position:relative;">
+                        <div class="camera-feed-container">
+                            <canvas id="live-canvas" class="camera-feed-image"></canvas>
+                            <div id="detection-overlay" class="detection-overlay"></div>
+                        </div>
+                        <div class="feed-controls" style="margin-top:12px;">
+                            <button id="btn-toggle-session" class="btn btn-primary">Iniciar Sesión de Inferencia</button>
+                            <button id="btn-capture-frame" class="btn btn-secondary">Capturar Frame</button>
+                        </div>
+                        <p style="margin-top:8px; font-size:0.78rem; color:var(--text-secondary); text-align:center;">
+                            💡 Haz <strong>click</strong> sobre una bbox detectada para clasificar la pieza con DINOv2
+                        </p>
+                    </div>
+
+                    <!-- Info de inferencia -->
+                    <div class="glass-panel">
+                        <h3 class="panel-header">Info de Inferencia</h3>
+                        <div class="config-group">
+                            <label>Sesión Activa:</label>
+                            <span id="live-session-id" style="font-size:0.85rem; font-family:monospace;">Ninguna</span>
+                        </div>
+                        <div class="config-group">
+                            <label>Latencia de Procesamiento:</label>
+                            <span id="live-latency" style="font-size:1.25rem; font-weight:bold;">0.0 ms</span>
+                        </div>
+                        <div class="config-group">
+                            <label>Piezas en Frame:</label>
+                            <span id="live-frame-pieces" style="font-size:1.25rem; font-weight:bold;">0</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Sección inferior: Historial de Frames de la Sesión -->
+                <div class="glass-panel" style="margin-top: 24px;">
+                    <h3 class="panel-header">📷 Historial de Frames de la Sesión (Guardados Temporalmente)</h3>
+                    <div style="display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap; width: 100%;">
+                        <!-- Columna izquierda: Navegación del Historial -->
+                        <div style="flex: 2; min-width: 300px; display: flex; flex-direction: column; gap: 12px; align-items: center;">
+                            <div class="camera-feed-container" style="max-width: 480px; width: 100%;">
+                                <canvas id="history-canvas" style="width: 100%; height: auto; display: block; border-radius: 8px; border: 1px solid var(--border);"></canvas>
+                            </div>
+                            <div class="feed-controls" style="display: flex; justify-content: space-between; align-items: center; width: 100%; max-width: 480px; margin-top: 4px;">
+                                <button id="btn-history-prev" class="btn btn-secondary" disabled>⬅️ Anterior</button>
+                                <span id="history-page-num" style="font-weight: bold; color: var(--accent);">Sin fotos capturadas</span>
+                                <button id="btn-history-next" class="btn btn-secondary" disabled>Siguiente ➡️</button>
+                            </div>
+                        </div>
+                        <!-- Columna derecha: Lista de Miniaturas -->
+                        <div style="flex: 1; min-width: 200px;">
+                            <label style="display: block; margin-bottom: 8px; color: var(--text-secondary); font-size: 0.9rem;">Miniaturas (Clic para visualizar / detectar):</label>
+                            <div id="history-thumbnails" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(85px, 1fr)); gap: 8px; max-height: 280px; overflow-y: auto; padding-right: 4px;">
+                                <!-- Se renderiza dinámicamente -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Sección: Recuento e Inventario de Inferencia vs Set Original -->
+                <div class="glass-panel" style="margin-top: 24px;">
+                    <h3 class="panel-header">📊 Recuento e Inventario de Inferencia (<span id="inference-set-title">Set 75078-1</span>)</h3>
+                    <div style="overflow-x: auto; width: 100%;">
+                        <table class="inventory-table" style="width: 100%; border-collapse: collapse; text-align: left; font-size: 0.9rem;">
+                            <thead>
+                                <tr style="border-bottom: 2px solid var(--border); color: var(--text-secondary);">
+                                    <th style="padding: 10px;">Referencia</th>
+                                    <th style="padding: 10px;">Nombre / Descripción</th>
+                                    <th style="padding: 10px; text-align: center;">Cantidad Teórica Set</th>
+                                    <th style="padding: 10px; text-align: center;">Identificadas en Inferencia</th>
+                                    <th style="padding: 10px; text-align: center;">Estado / Desviación</th>
+                                </tr>
+                            </thead>
+                            <tbody id="session-inventory-tbody">
+                                <!-- Se renderiza dinámicamente -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ── VISTA: BÚSQUEDA DE SETS REALES ── -->
+            <section id="view-setsearch" class="page-view">
+                <div class="dashboard-header">
+                    <h2 class="dashboard-title">Buscador de Sets de LEGO</h2>
+                </div>
+                
+                <div class="glass-panel" style="flex-direction:row; gap:16px; align-items:flex-end;">
+                    <div class="config-group" style="flex-grow:1; margin-bottom:0;">
+                        <label>Referencia del Set LEGO (ej. 75078-1)</label>
+                        <input type="text" id="set-search-input" placeholder="Ingresa referencia, ej: 75078-1" value="75078-1" style="width:100%;">
+                    </div>
+                    <button id="btn-search-set" class="btn btn-primary" style="height:42px;">Buscar Set</button>
+                </div>
+                
+                <div id="set-result-container" style="display:none; flex-direction:column; gap:24px;">
+                    <div class="glass-panel">
+                        <h3 id="set-title" class="panel-header" style="border-bottom:none; padding-bottom:0; font-size:1.4rem; color:#fff;">—</h3>
+                    </div>
+                    <div class="main-view-grid" style="grid-template-columns:2fr 1fr;">
+                        <div class="glass-panel">
+                            <h3 class="panel-header">Piezas Incluidas (con previsualización LDraw 3D)</h3>
+                            <div id="set-parts-grid" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(180px, 1fr)); gap:16px; overflow-y:auto; max-height:480px; padding-right:8px;"></div>
+                        </div>
+                        <div class="glass-panel">
+                            <h3 class="panel-header">Minifiguras del Set</h3>
+                            <div id="set-minifigures-list" class="recent-list"></div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div id="set-loading" style="display:none; align-items:center; justify-content:center; flex-direction:column; gap:16px; margin:40px 0;">
+                    <div style="width:40px; height:40px; border:4px solid rgba(255,255,255,0.1); border-top-color:var(--accent); border-radius:50%; animation:spin 1s infinite linear;"></div>
+                    <span style="color:var(--text-secondary); font-size:0.95rem;">Generando renders 3D en Blender Cycles (bajo demanda)...</span>
+                </div>
+            </section>
+
+            <!-- ── VISTA: ENTRENAMIENTO ── -->
+            <section id="view-training" class="page-view">
+                <div class="dashboard-header">
+                    <h2 class="dashboard-title">Pipeline de Entrenamiento</h2>
+                    <span id="train-status-badge" class="piece-conf low">Sin entrenar</span>
+                </div>
+
+                <!-- Parámetros -->
+                <div class="glass-panel">
+                    <h3 class="panel-header">Parámetros de Entrenamiento YOLO</h3>
+                    <div class="training-params">
+                        <div class="param-group">
+                            <label>Épocas</label>
+                            <input type="number" id="train-epochs" value="15" min="1" max="300">
+                        </div>
+                        <div class="param-group">
+                            <label>Batch Size</label>
+                            <input type="number" id="train-batch" value="16" min="4" max="64">
+                        </div>
+                        <div class="param-group">
+                            <label>Imágenes sintéticas</label>
+                            <input type="number" id="train-dataset-size" value="200" min="20" max="5000">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Pasos del pipeline -->
+                <div class="glass-panel">
+                    <h3 class="panel-header">Fases del Pipeline</h3>
+                    <div class="training-steps">
+                        <div class="training-step" id="step-1">
+                            <div class="step-num">1</div>
+                            <div class="step-info">
+                                <div class="step-title">Generar Dataset Sintético (Blender)</div>
+                                <div class="step-desc">Renderiza imágenes tipo cinta con piezas LDraw en modo belt_mode. ~8x más rápido que simulación física.</div>
+                            </div>
+                            <span class="step-status" id="step-1-status">Pendiente</span>
+                            <button class="btn btn-primary" id="btn-start-training" style="font-size:0.82rem; padding:8px 16px;">▶ Iniciar</button>
+                        </div>
+
+                        <div class="training-step" id="step-2">
+                            <div class="step-num">2</div>
+                            <div class="step-info">
+                                <div class="step-title">Indexar Embeddings DINOv2</div>
+                                <div class="step-desc">Genera 36 vistas por pieza en Blender y extrae vectores de 384 dims con ViT-S/14. Necesario para clasificación Fase 2.</div>
+                            </div>
+                            <span class="step-status" id="step-2-status">Pendiente</span>
+                            <button class="btn btn-secondary" id="btn-start-indexing" style="font-size:0.82rem; padding:8px 16px;">▶ Indexar</button>
+                        </div>
+
+                        <div class="training-step" id="step-3">
+                            <div class="step-num">3</div>
+                            <div class="step-info">
+                                <div class="step-title">Estadísticas de Embeddings</div>
+                                <div class="step-desc">Vectores de referencia almacenados en BD local (PostgreSQL). Usados para similitud coseno en inferencia.</div>
+                            </div>
+                            <span class="step-status" id="step-3-status">0 embeddings</span>
+                            <button class="btn btn-secondary" id="btn-refresh-embeddings" style="font-size:0.82rem; padding:8px 16px;">↻ Actualizar</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Progreso de entrenamiento -->
+                <div class="glass-panel" id="training-progress-panel">
+                    <h3 class="panel-header">Progreso — Entrenador YOLO</h3>
+                    <div class="epoch-progress-wrap" style="margin-bottom:16px;">
+                        <div class="epoch-progress-header">
+                            <span id="epoch-label">Época 0 / 0</span>
+                            <span id="metrics-label" style="color: var(--text-secondary);">Loss: — | mAP50: —</span>
+                        </div>
+                        <div class="epoch-progress-bar-track">
+                            <div class="epoch-progress-bar-fill" id="epoch-progress-bar"></div>
+                        </div>
+                    </div>
+                    <canvas id="training-chart"></canvas>
+                </div>
+
+                <!-- Terminal de logs -->
+                <div class="glass-panel">
+                    <h3 class="panel-header" style="display:flex; justify-content:space-between;">
+                        <span>Logs del Entrenamiento</span>
+                        <button class="btn btn-secondary" id="btn-clear-logs" style="font-size:0.72rem; padding:4px 10px;">Limpiar</button>
+                    </h3>
+                    <div class="training-log-terminal" id="training-logs">
+> LegoVision Training Terminal
+> Esperando inicio del pipeline...
+                    </div>
+                </div>
+            </section>
+
+            <!-- ── VISTA: ESTADÍSTICAS ── -->
+            <section id="view-statistics" class="page-view">
+                <div class="dashboard-header">
+                    <h2 class="dashboard-title">Análisis Histórico y Reportes</h2>
+                </div>
+                <div class="glass-panel">
+                    <h3 class="panel-header">Historial de Inferencia</h3>
+                    <p style="color:var(--text-secondary);">Gráficos y reportes de volumen de piezas clasificadas.</p>
+                    <div style="height:300px; display:flex; align-items:center; justify-content:center; background:rgba(0,0,0,0.2); border-radius:12px; border:1px dashed var(--border);">
+                        <span>Mapeo histórico de carga de cinta transportadora</span>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ── VISTA: CONFIGURACIÓN ── -->
+            <section id="view-config" class="page-view">
+                <div class="dashboard-header">
+                    <h2 class="dashboard-title">Ajustes del Sistema</h2>
+                </div>
+                <div class="main-view-grid" style="grid-template-columns:1fr 1fr;">
+                    <div class="glass-panel">
+                        <h3 class="panel-header">Inferencia YOLOv8</h3>
+                        <div class="config-group">
+                            <label>Umbral de Confianza (Confidence Threshold)</label>
+                            <input type="number" id="cfg-conf-threshold" step="0.05" min="0.1" max="0.95" value="0.5">
+                        </div>
+                        <div class="config-group">
+                            <label>Dispositivo de Ejecución</label>
+                            <select id="cfg-device">
+                                <option value="mps">Metal Performance Shaders (Apple Silicon)</option>
+                                <option value="cpu">CPU (Lento)</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="glass-panel">
+                        <h3 class="panel-header">Cinta Transportadora</h3>
+                        <div class="config-group">
+                            <label>Velocidad de Cinta (m/min)</label>
+                            <input type="number" id="cfg-belt-speed" step="0.5" min="1.0" max="10.0" value="5.0">
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+        </main>
+    </div>
+    
+    <script src="js/app.js"></script>
+</body>
+</html>
