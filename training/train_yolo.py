@@ -124,10 +124,9 @@ def main():
     parser.add_argument("--epochs", type=int, default=15)
     parser.add_argument("--batch", type=int, default=16)
     parser.add_argument("--imgsz", type=int, default=640)
-    parser.add_argument("--dataset_size", type=int, default=200, help="Imágenes sintéticas a generar")
+    parser.add_argument("--dataset_size", type=int, default=200, help="Imágenes de entrenamiento")
     parser.add_argument("--device", type=str, default="mps" if torch.backends.mps.is_available() else "cpu")
     parser.add_argument("--set_id", type=str, default=None, help="Restringe a las piezas de este set")
-    parser.add_argument("--belt_mode", action="store_true", default=True, help="Usa el modo cinta sin físicas de Blender")
     
     args = parser.parse_args()
     
@@ -143,50 +142,17 @@ def main():
     print(f"[LegoVision Train] Corrida registrada en BD con ID: {RUN_ID}")
     
     try:
-        # 2. Generar dataset sintético vía Blender
-        blender_path = os.getenv("BLENDER_PATH", "/Users/I764690/Applications/Blender.app/Contents/MacOS/Blender")
+        # 2. Utilizar el dataset existente
         raw_dataset_dir = os.path.join(project_root, "data", "raw_dataset")
-        
-        print(f"[LegoVision Train] Lanzando Blender para generar {args.dataset_size} imágenes sintéticas...")
+        print(f"[LegoVision Train] Usando dataset local en {raw_dataset_dir}...")
         supabase_client.update_training_progress(
             run_id=RUN_ID,
             current_epoch=0,
             loss=0.0,
             val_loss=0.0,
             map50=0.0,
-            log_text="Iniciando generación de dataset sintético en Blender...\n"
+            log_text="Iniciando preparación del dataset local...\n"
         )
-        
-        cmd = [
-            blender_path,
-            "--background",
-            "--python", "blender_pipeline/generate_dataset.py",
-            "--",
-            "--num_images", str(args.dataset_size),
-            "--pieces_per_image", "6",
-            "--single_class"
-        ]
-        if args.belt_mode:
-            cmd.append("--belt_mode")
-        if args.set_id:
-            cmd.append("--set_id")
-            cmd.append(args.set_id)
-        
-        # Ejecutar e ir canalizando logs a base de datos
-        process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, cwd=project_root)
-        
-        for line in process.stdout:
-            # Imprimir en consola y guardar en log de base de datos
-            sys.stdout.write(line)
-            sys.stdout.flush()
-            # Limitar logs a líneas clave de Blender para no saturar
-            if "[LegoVision" in line or "Saved:" in line or "Generando Imagen" in line:
-                supabase_client.update_training_progress(RUN_ID, 0, 0.0, 0.0, 0.0, line)
-                
-        process.wait()
-        
-        if process.returncode != 0:
-            raise RuntimeError(f"La generación del dataset de Blender falló con código {process.returncode}")
             
         # 3. Preparar carpetas train/val y YAML
         processed_dataset_dir = os.path.join(project_root, "data", "processed_dataset")

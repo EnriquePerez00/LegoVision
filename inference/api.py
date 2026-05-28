@@ -380,7 +380,7 @@ async def classify_crop(req: ClassifyCropRequest):
         print(f"[LegoVision API] Error en clasificación DINOv2: {e}")
         return {"status": "error", "message": str(e), "top3": []}
 
-    # 3. Enriquecer resultados con metadatos del catálogo e imagen de referencia de la BD
+    # 3. Enriquecer resultados con metadatos del catálogo
     enriched = []
     for match in top3:
         part_ref = match["part_ref"]
@@ -389,9 +389,6 @@ async def classify_crop(req: ClassifyCropRequest):
         
         # Resolver metadatos de pieza y color
         part_name, color_name, color_hex = get_part_info(part_ref, detected_color)
-        
-        # Recuperar render de la BD
-        ref_img_b64 = supabase_client.get_part_render(part_ref, detected_color) or ""
         
         enriched.append({
             "rank": match["rank"],
@@ -403,7 +400,7 @@ async def classify_crop(req: ClassifyCropRequest):
             "detected_color": detected_color,
             "color_name": color_name,
             "color_hex": color_hex,
-            "ref_image_b64": ref_img_b64,
+            "ref_image_b64": "",
         })
 
     latency_ms = (time.time() - start_time) * 1000.0

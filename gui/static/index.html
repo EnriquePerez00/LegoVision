@@ -100,12 +100,6 @@
                         <img id="modal-crop-img" src="" alt="Recorte de pieza">
                     </div>
                     <div class="modal-img-box">
-                        <span>Render LDraw</span>
-                        <div id="modal-ref-wrap" style="width:100%; display:flex; justify-content:center; align-items:center;">
-                            <div class="drawer-img-placeholder">Sin Imagen</div>
-                        </div>
-                    </div>
-                    <div class="modal-img-box">
                         <span>BrickLink</span>
                         <div id="modal-bricklink-wrap" style="width:100%; display:flex; justify-content:center; align-items:center;">
                             <div class="drawer-img-placeholder">Sin Imagen</div>
@@ -372,7 +366,7 @@
                     </div>
                     <div class="main-view-grid" style="grid-template-columns:2fr 1fr;">
                         <div class="glass-panel">
-                            <h3 class="panel-header">Piezas Incluidas (con previsualización LDraw 3D)</h3>
+                            <h3 class="panel-header">Piezas Incluidas</h3>
                             <div id="set-parts-grid" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(180px, 1fr)); gap:16px; overflow-y:auto; max-height:480px; padding-right:8px;"></div>
                         </div>
                         <div class="glass-panel">
@@ -384,7 +378,7 @@
                 
                 <div id="set-loading" style="display:none; align-items:center; justify-content:center; flex-direction:column; gap:16px; margin:40px 0;">
                     <div style="width:40px; height:40px; border:4px solid rgba(255,255,255,0.1); border-top-color:var(--accent); border-radius:50%; animation:spin 1s infinite linear;"></div>
-                    <span style="color:var(--text-secondary); font-size:0.95rem;">Generando renders 3D en Blender Cycles (bajo demanda)...</span>
+                    <span style="color:var(--text-secondary); font-size:0.95rem;">Cargando inventario del set...</span>
                 </div>
             </section>
 
@@ -408,7 +402,7 @@
                             <input type="number" id="train-batch" value="16" min="4" max="64">
                         </div>
                         <div class="param-group">
-                            <label>Imágenes sintéticas</label>
+                            <label>Imágenes de entrenamiento</label>
                             <input type="number" id="train-dataset-size" value="200" min="20" max="5000">
                         </div>
                     </div>
@@ -421,8 +415,8 @@
                         <div class="training-step" id="step-1">
                             <div class="step-num">1</div>
                             <div class="step-info">
-                                <div class="step-title">Generar Dataset Sintético (Blender)</div>
-                                <div class="step-desc">Renderiza imágenes tipo cinta con piezas LDraw en modo belt_mode. ~8x más rápido que simulación física.</div>
+                                <div class="step-title">Preparar Dataset Local</div>
+                                <div class="step-desc">Organiza y divide las imágenes del dataset local en carpetas train/val para YOLO.</div>
                             </div>
                             <span class="step-status" id="step-1-status">Pendiente</span>
                             <button class="btn btn-primary" id="btn-start-training" style="font-size:0.82rem; padding:8px 16px;">▶ Iniciar</button>
@@ -432,7 +426,7 @@
                             <div class="step-num">2</div>
                             <div class="step-info">
                                 <div class="step-title">Indexar Embeddings DINOv2</div>
-                                <div class="step-desc">Genera 36 vistas por pieza en Blender y extrae vectores de 384 dims con ViT-S/14. Necesario para clasificación Fase 2.</div>
+                                <div class="step-desc">Extrae vectores de 384 dims con ViT-S/14 a partir de las imágenes de referencia cargadas localmente. Necesario para clasificación Fase 2.</div>
                             </div>
                             <span class="step-status" id="step-2-status">Pendiente</span>
                             <button class="btn btn-secondary" id="btn-start-indexing" style="font-size:0.82rem; padding:8px 16px;">▶ Indexar</button>

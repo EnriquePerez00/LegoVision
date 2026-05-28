@@ -54,58 +54,12 @@ class ApiBridge:
     # ------------------------------------------------------------------
 
     def get_set_inventory(self, set_id: str) -> dict:
-        """Obtiene el inventario de un set, cargando o generando los renders 3D."""
+        """Obtiene el inventario de un set rápidamente sin generar renders 3D."""
         try:
             from database import set_catalog
-            import base64
-
             set_data = set_catalog.get_set_data(set_id)
-
-            blender_path = os.getenv("BLENDER_PATH", "/Users/I764690/Applications/Blender.app/Contents/MacOS/Blender")
-            ldraw_path = os.getenv("LDRAW_PATH", "./data/ldraw")
-            if not os.path.isabs(ldraw_path):
-                ldraw_path = os.path.abspath(os.path.join(project_root, ldraw_path))
-
-            # Procesar cada pieza del set
             for part in set_data["parts"]:
-                part_ref = part["ref"]
-                color_code = part["color_code"]
-                color_hex = part["color_hex"]
-
-                # 1. Comprobar si ya existe en la base de datos
-                image_data = supabase_client.get_part_render(part_ref, color_code)
-
-                if image_data:
-                    part["image"] = f"data:image/png;base64,{image_data}"
-                else:
-                    tmp_dir = os.path.join(project_root, "data", "tmp")
-                    os.makedirs(tmp_dir, exist_ok=True)
-                    output_png = os.path.join(tmp_dir, f"render_{part_ref}_{color_code}.png")
-
-                    script_path = os.path.join(project_root, "blender_pipeline", "render_part.py")
-                    cmd = [
-                        blender_path,
-                        "--background",
-                        "--python", script_path,
-                        "--",
-                        "--part_id", part_ref,
-                        "--color_hex", color_hex,
-                        "--ldraw_path", ldraw_path,
-                        "--output", output_png,
-                    ]
-
-                    print(f"[LegoVision GUI] Generando render bajo demanda: {part_ref} (Color {color_hex})...")
-                    subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-
-                    if os.path.exists(output_png):
-                        with open(output_png, "rb") as f:
-                            encoded_img = base64.b64encode(f.read()).decode("utf-8")
-                        supabase_client.save_part_render(part_ref, color_code, encoded_img)
-                        part["image"] = f"data:image/png;base64,{encoded_img}"
-                        os.remove(output_png)
-                    else:
-                        part["image"] = ""
-
+                part["image"] = "" # Sin renders 3D
             return {
                 "status": "success",
                 "set_name": set_data["name"],
@@ -118,18 +72,7 @@ class ApiBridge:
 
     def get_set_inventory_light(self, set_id: str) -> dict:
         """Obtiene el inventario de un set rápidamente sin generar renders 3D."""
-        try:
-            from database import set_catalog
-            set_data = set_catalog.get_set_data(set_id)
-            return {
-                "status": "success",
-                "set_name": set_data["name"],
-                "minifigures": set_data["minifigures"],
-                "parts": set_data["parts"],
-            }
-        except Exception as e:
-            print(f"[LegoVision GUI ERROR] get_set_inventory_light: {e}")
-            return {"status": "error", "message": str(e)}
+        return self.get_set_inventory(set_id)
 
     # ------------------------------------------------------------------
     # Pipeline de Entrenamiento (Fase 1: YOLO)
@@ -177,7 +120,7 @@ class ApiBridge:
 
     def start_indexing(self, set_id: str = "50SIMPLE-1") -> dict:
         """
-        Inicia el proceso de indexación DINOv2 (multi-view renders + embedding extraction).
+        Inicia el proceso de indexación DINOv2 (embedding extraction de renders ya existentes).
         Ejecuta en un hilo de fondo.
         """
         global _indexing_thread
@@ -188,38 +131,7 @@ class ApiBridge:
             venv_python = os.path.join(project_root, ".venv", "bin", "python")
             python_exec = venv_python if os.path.exists(venv_python) else sys.executable
 
-            # Step 1: Generate multi-view renders with Blender
-            blender_path = os.getenv("BLENDER_PATH", "/Users/I764690/Applications/Blender.app/Contents/MacOS/Blender")
-            ldraw_path = os.getenv("LDRAW_PATH", "./data/ldraw")
-            if not os.path.isabs(ldraw_path):
-                ldraw_path = os.path.abspath(os.path.join(project_root, ldraw_path))
-
-            mv_script = os.path.join(project_root, "blender_pipeline", "generate_multi_view.py")
-            output_dir = os.path.join(project_root, "data", "tmp", "ref_renders")
-            os.makedirs(output_dir, exist_ok=True)
-
-            print(f"[LegoVision GUI] Generando vistas multi-ángulo para set {set_id}...")
-            cmd_blender = [
-                blender_path, "--background",
-                "--python", mv_script,
-                "--",
-                "--set_id", set_id,
-                "--ldraw_path", ldraw_path,
-                "--output_dir", output_dir,
-            ]
-            proc1 = subprocess.Popen(
-                cmd_blender, cwd=project_root,
-                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
-            )
-            for line in proc1.stdout:
-                sys.stdout.write(line); sys.stdout.flush()
-            proc1.wait()
-
-            if proc1.returncode != 0:
-                print(f"[LegoVision GUI ERROR] Generación multi-vista falló (código {proc1.returncode})")
-                return
-
-            # Step 2: Index embeddings with DINOv2
+            # Indexar embeddings DINOv2 usando renders existentes o imágenes de referencia
             idx_script = os.path.join(project_root, "training", "index_embeddings.py")
             print("[LegoVision GUI] Indexando embeddings DINOv2...")
             proc2 = subprocess.Popen(

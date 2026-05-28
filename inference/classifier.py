@@ -278,20 +278,7 @@ class LegoClassifier:
         clean_crop = self._remove_background_opencv(crop)
 
         # Step 2: Redimensionado por escala física real
-        try:
-            from blender_pipeline import config
-            sensor_width = getattr(config, "SENSOR_WIDTH_MM", 8.44)
-            focal_length = getattr(config, "LENS_FOCAL_LENGTH_MM", 12.0)
-            camera_height = getattr(config, "CAMERA_HEIGHT_MM", 355.0)
-            resolution_x = getattr(config, "RESOLUTION_X", 2448)
-            
-            fov_x = camera_height * sensor_width / focal_length
-            pixels_per_mm_belt = resolution_x / fov_x
-            pixels_per_mm_canvas = 224.0 / 70.0 # 70mm canvas FOV -> 3.2 px/mm
-            
-            scale_factor = pixels_per_mm_canvas / pixels_per_mm_belt
-        except Exception:
-            scale_factor = 0.3264  # Fallback precalculado para 355mm, 12mm lens, 8.44mm sensor, 2448px
+        scale_factor = 0.3264  # Fallback precalculado para 355mm, 12mm lens, 8.44mm sensor, 2448px
 
         w_piece, h_piece = clean_crop.size
         if w_piece > 0 and h_piece > 0:

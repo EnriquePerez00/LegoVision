@@ -150,17 +150,6 @@ INSERT INTO models (version, model_path, notes, is_active)
 VALUES ('placeholder-v0.0', './runs/train/best.pt', 'Placeholder hasta completar training', FALSE)
 ON CONFLICT (version) DO NOTHING;
 
--- ----------------------------------------------------------------
--- TABLA: part_renders
--- Almacenamiento de imágenes de piezas 3D renderizadas bajo demanda
--- ----------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS part_renders (
-    part_ref    TEXT NOT NULL,
-    color_code  TEXT NOT NULL,
-    image_data  TEXT NOT NULL, -- Imagen codificada en Base64
-    created_at  TIMESTAMPTZ DEFAULT NOW(),
-    PRIMARY KEY (part_ref, color_code)
-);
 
 -- ----------------------------------------------------------------
 -- TABLA: training_runs

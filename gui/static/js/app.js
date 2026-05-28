@@ -969,13 +969,9 @@ function openClassifierDrawer(cropDataUrl, frameB64, bbox) {
             document.getElementById("drawer-part-name").innerText = best.part_name;
             document.getElementById("drawer-part-ref").innerText  = `LDraw: ${best.part_ref}`;
 
-            // Imagen de referencia
+            // Imagen de referencia (BrickLink u otra, sin render local)
             const refWrap = document.getElementById("drawer-ref-wrap");
-            if (best.ref_image_b64) {
-                refWrap.innerHTML = `<img src="data:image/png;base64,${best.ref_image_b64}" alt="Referencia ${best.part_ref}">`;
-            } else {
-                refWrap.innerHTML = `<div class="drawer-img-placeholder">Sin render en BD</div>`;
-            }
+            refWrap.innerHTML = `<div class="drawer-img-placeholder">Sin render 3D</div>`;
 
             // Barra de confianza (animada con delay para efecto visual)
             const pct = Math.round(best.score * 100);
@@ -988,9 +984,7 @@ function openClassifierDrawer(cropDataUrl, frameB64, bbox) {
             const candidateList = document.getElementById("candidate-list");
             candidateList.innerHTML = (data.top3 || []).map(c => {
                 const scorePct = Math.round(c.score * 100);
-                const thumbHtml = c.ref_image_b64
-                    ? `<img class="candidate-thumb" src="data:image/png;base64,${c.ref_image_b64}" alt="${c.part_ref}">`
-                    : `<div class="candidate-thumb" style="display:flex;align-items:center;justify-content:center;color:rgba(255,255,255,0.2);font-size:1.2rem;">🧱</div>`;
+                const thumbHtml = `<div class="candidate-thumb" style="display:flex;align-items:center;justify-content:center;color:rgba(255,255,255,0.2);font-size:1.2rem;">🧱</div>`;
                 return `
                     <div class="candidate-card ${c.rank === 1 ? 'rank-1' : ''}">
                         <div class="candidate-rank">${c.rank}</div>
@@ -1693,7 +1687,6 @@ function openClassifierModal(cropDataUrl, frameB64, bbox, filename = null) {
                 document.getElementById("modal-part-ref").innerText  = "—";
                 document.getElementById("modal-confidence").innerText = "0%";
                 document.getElementById("modal-conf-bar").style.width = "0%";
-                document.getElementById("modal-ref-wrap").innerHTML = `<div class="drawer-img-placeholder">Sin imagen</div>`;
                 document.getElementById("modal-bricklink-wrap").innerHTML = `<div class="drawer-img-placeholder">Sin imagen</div>`;
                 document.getElementById("modal-color-badge").style.background = "#475569";
                 document.getElementById("modal-color-text").innerText = "—";
@@ -1707,14 +1700,6 @@ function openClassifierModal(cropDataUrl, frameB64, bbox, filename = null) {
             // ── Nombre y referencia ──
             document.getElementById("modal-part-name").innerText = best.part_name || `Pieza LDraw ${best.part_ref}`;
             document.getElementById("modal-part-ref").innerText  = `Referencia LDraw: ${best.part_ref}`;
-
-            // ── Render LDraw desde BD ──
-            const refWrap = document.getElementById("modal-ref-wrap");
-            if (best.ref_image_b64) {
-                refWrap.innerHTML = `<img src="data:image/png;base64,${best.ref_image_b64}" alt="Referencia ${best.part_ref}" style="max-width:100%;max-height:110px;object-fit:contain;border-radius:6px;">`;
-            } else {
-                refWrap.innerHTML = `<div class="drawer-img-placeholder">Sin render en BD</div>`;
-            }
 
             // ── Color badge ──
             const colorHex  = best.color_hex  || "#A0A5A9";

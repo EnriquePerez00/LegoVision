@@ -162,31 +162,6 @@ def get_recent_detections(limit: int = 50) -> list[dict]:
             return [dict(r) for r in cur.fetchall()]
 
 
-def save_part_render(part_ref: str, color_code: str, image_base64: str):
-    """Guarda o actualiza la imagen renderizada (Base64) de una pieza en la BD."""
-    with get_connection() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                INSERT INTO part_renders (part_ref, color_code, image_data)
-                VALUES (%s, %s, %s)
-                ON CONFLICT (part_ref, color_code) 
-                DO UPDATE SET image_data = EXCLUDED.image_data, created_at = NOW()
-            """, (part_ref, color_code, image_base64))
-
-def get_part_render(part_ref: str, color_code: str) -> Optional[str]:
-    """Obtiene la imagen renderizada en Base64 de una pieza si existe en la BD."""
-    try:
-        with get_connection() as conn:
-            with conn.cursor() as cur:
-                cur.execute("""
-                    SELECT image_data FROM part_renders
-                    WHERE part_ref = %s AND color_code = %s
-                """, (part_ref, color_code))
-                res = cur.fetchone()
-                return res["image_data"] if res else None
-    except Exception as e:
-        print(f"[LegoVision DB Error] Error leyendo render de BD: {e}")
-        return None
 
 def test_connection() -> bool:
     """Verifica que la conexión a la BD funciona."""
