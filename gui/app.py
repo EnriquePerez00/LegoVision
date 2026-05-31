@@ -334,6 +334,23 @@ class ApiBridge:
             # Asegurar que el directorio de destino exista
             os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
+            # FIX-D: cache hit — si los 15 crops ya existen, devolver inmediatamente
+            crops_dir = os.path.dirname(output_path)
+            cached_crops = []
+            for ci in range(15):
+                cp = os.path.join(crops_dir, f"physics_scatter_{part_ref}_{clean_color}_crop_{ci}.png")
+                if os.path.exists(cp):
+                    cached_crops.append(f"http://localhost:8005/renders/physics_scatter_{part_ref}_{clean_color}_crop_{ci}.png")
+            if len(cached_crops) == 15:
+                print(f"[LegoVision Physics] Cache hit: 15 crops ya existen para {part_ref}_{clean_color}.")
+                return {
+                    "status": "success",
+                    "image_url": cached_crops[0],
+                    "crops": cached_crops,
+                    "output_path": os.path.join(crops_dir, f"physics_scatter_{part_ref}_{clean_color}_crop_0.png"),
+                    "message": f"Crops cargados desde cache (15 vistas de {part_ref})."
+                }
+
             cmd = [
                 blender_path,
                 "-b",
