@@ -1167,3 +1167,84 @@ body {
     color: #ef4444;
     border: 1px solid rgba(239, 68, 68, 0.3);
 }
+
+/* =============================================================
+   MODAL DE INSPECCIÓN DE PIEZAS (PART INSPECTOR)
+   ============================================================= */
+#part-inspector-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.65);
+    backdrop-filter: blur(8px);
+    z-index: 1020;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s ease;
+}
+#part-inspector-overlay.visible {
+    opacity: 1;
+    pointer-events: all;
+}
+
+#part-inspector-modal {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%) scale(0.9);
+    width: 90%;
+    max-width: 680px;
+    background: rgba(13, 18, 41, 0.96);
+    border: 1px solid rgba(59, 130, 246, 0.3); /* Tema azul */
+    border-radius: 20px;
+    backdrop-filter: blur(24px);
+    box-shadow: 0 24px 64px rgba(0, 0, 0, 0.85);
+    z-index: 1030;
+    display: none;
+    flex-direction: column;
+    overflow: hidden;
+    opacity: 0;
+    max-height: 90vh;
+    transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.25s ease;
+}
+#part-inspector-modal.visible {
+    display: flex;
+    transform: translate(-50%, -50%) scale(1);
+    opacity: 1;
+}
+
+.inspector-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+    gap: 12px;
+    margin-top: 10px;
+    max-height: 280px;
+    overflow-y: auto;
+    padding: 4px;
+}
+
+.inspector-crop-card {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    position: relative;
+}
+
+.inspector-crop-card img {
+    width: 100%;
+    aspect-ratio: 1;
+    object-fit: contain;
+    border-radius: 4px;
+    background: rgba(0, 0, 0, 0.2);
+}
+
+.inspector-crop-score {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--accent-green);
+}
+

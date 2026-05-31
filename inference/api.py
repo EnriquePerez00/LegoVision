@@ -35,6 +35,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+from fastapi.staticfiles import StaticFiles
+renders_dir = os.path.join(project_root, "data", "synthetic_renders")
+os.makedirs(renders_dir, exist_ok=True)
+app.mount("/renders", StaticFiles(directory=renders_dir), name="renders")
+models_dir = os.path.join(project_root, "gui", "static", "models")
+os.makedirs(models_dir, exist_ok=True)
+app.mount("/models", StaticFiles(directory=models_dir), name="models")
+
+
 # Inicializar detector global
 MODEL_PATH = os.getenv("MODEL_PATH", "./runs/train/best.pt")
 DEVICE = os.getenv("MODEL_DEVICE", None)
@@ -58,6 +67,7 @@ def get_classifier():
 class SessionState:
     def __init__(self):
         self.active_session_id = None
+        self.active_set_id = None
         self.start_time = None
         self.frame_count = 0
         self.total_latency_ms = 0.0
@@ -68,6 +78,7 @@ session_state = SessionState()
 class SessionStartRequest(BaseModel):
     model_version: str = "yolov8n_synthetic"
     belt_speed_mm_s: float = 83.3
+    set_id: Optional[str] = None
 
 class ClassifyCropRequest(BaseModel):
     """
@@ -79,6 +90,7 @@ class ClassifyCropRequest(BaseModel):
     frame_b64: str            # frame completo en base64
     color_code: Optional[str] = "0"  # para buscar render de referencia en BD
     filename: Optional[str] = None   # nombre del archivo original para cargar de disco si existe
+    set_id: Optional[str] = None     # ID del set activo para filtrar candidatos
 
 @app.get("/")
 def read_root():
@@ -115,12 +127,13 @@ def start_session(req: SessionStartRequest):
             belt_speed_mm_s=req.belt_speed_mm_s
         )
         session_state.active_session_id = session_id
+        session_state.active_set_id = req.set_id
         session_state.start_time = time.time()
         session_state.frame_count = 0
         session_state.total_latency_ms = 0.0
         session_state.confidences = []
         
-        print(f"[LegoVision API] Sesión de inferencia iniciada: {session_id}")
+        print(f"[LegoVision API] Sesión de inferencia iniciada: {session_id} para set: {req.set_id}")
         return {
             "status": "success",
             "session_id": session_id
@@ -375,7 +388,8 @@ async def classify_crop(req: ClassifyCropRequest):
                 "message": "Embeddings de referencia no cargados. Ejecuta primero la indexación DINOv2.",
                 "top3": []
             }
-        top3 = clf.classify(crop)
+        set_id = req.set_id or session_state.active_set_id
+        top3 = clf.classify(crop, set_id=set_id)
     except Exception as e:
         print(f"[LegoVision API] Error en clasificación DINOv2: {e}")
         return {"status": "error", "message": str(e), "top3": []}
@@ -447,10 +461,10 @@ def start_inference_run():
 
 @app.get("/inference-run/images")
 def get_inference_run_images():
-    """Retorna la lista de imágenes en la corrida temporal."""
+    """Retorna la lista de imágenes en la corrida temporal (excluyendo imágenes de depuración _clean.png)."""
     if not os.path.exists(TEMP_RUN_DIR):
         return {"images": []}
-    files = sorted([f for f in os.listdir(TEMP_RUN_DIR) if f.endswith(".png")])
+    files = sorted([f for f in os.listdir(TEMP_RUN_DIR) if f.endswith(".png") and not f.endswith("_clean.png")])
     return {"images": files}
 
 @app.get("/inference-run/image/{filename}")

@@ -6,6 +6,10 @@
     <title>LegoVision — Dashboard de Clasificación Industrial</title>
     <meta name="description" content="LegoVision: sistema de visión artificial para clasificación de piezas LEGO sobre cinta transportadora con detección YOLO y clasificación DINOv2.">
     <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="css/detection_cards.css">
+    <script src="https://cdn.jsdelivr.net/npm/three@0.134.0/build/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.134.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.134.0/examples/js/loaders/GLTFLoader.js"></script>
 </head>
 <body>
     <!-- ══════════════════════════════════════════════
@@ -143,6 +147,48 @@
         </div>
     </div>
 
+    <!-- ══════════════════════════════════════════════
+         MODAL INSPECTOR DE PIEZAS (PART INSPECTOR)
+         ══════════════════════════════════════════════ -->
+    <div id="part-inspector-overlay"></div>
+    <div id="part-inspector-modal">
+        <div class="modal-header">
+            <h3>Inspector de Pieza Real</h3>
+            <button class="modal-close-btn" id="btn-close-inspector" title="Cerrar">✕</button>
+        </div>
+        <div class="modal-body">
+            <div class="modal-images-row">
+                <div class="modal-img-box" style="flex: 1.2;">
+                    <span>Referencia Oficial (BrickLink)</span>
+                    <div id="inspector-bricklink-wrap" style="width:100%; display:flex; justify-content:center; align-items:center; min-height: 120px;">
+                        <div class="drawer-img-placeholder">Sin Imagen</div>
+                    </div>
+                </div>
+                <div class="modal-info-block" style="flex: 1.8;">
+                    <div class="modal-part-name" id="inspector-part-name">Nombre de la Pieza</div>
+                    <div class="modal-part-ref" id="inspector-part-ref">Referencia: —</div>
+                    <div class="modal-part-color" id="inspector-part-color" style="display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 0.9rem; color: var(--text-secondary);">
+                        <span>Color del set:</span>
+                        <span id="inspector-color-badge" style="width: 14px; height: 14px; border-radius: 50%; border: 1px solid #475569; display: inline-block;"></span>
+                        <span id="inspector-color-text">—</span>
+                    </div>
+                    <div style="margin-top: 12px; font-size: 0.85rem;">
+                        <a id="inspector-bricklink-url" href="#" target="_blank" style="color: #38bdf8; text-decoration: underline; display: flex; align-items: center; gap: 4px; width: fit-content;">
+                            <span>🌐 Ver ficha en BrickLink</span>
+                        </a>
+                    </div>
+                </div>
+            </div>
+
+            <div style="margin-top: 8px;">
+                <h4 style="font-size: 0.9rem; font-weight: 600; color: #fff; margin-bottom: 8px;">Instancias Reconocidas en esta Sesión</h4>
+                <div id="inspector-crops-grid" class="inspector-grid">
+                    <div style="color: var(--text-secondary); font-size: 0.85rem; padding: 12px; text-align: center; grid-column: 1 / -1;">No se han detectado instancias en esta sesión.</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <div id="app-layout">
         <!-- ══════════ SIDEBAR ══════════ -->
         <aside id="sidebar">
@@ -167,9 +213,13 @@
                 <a class="nav-item" data-view="statistics" id="nav-statistics">
                     <span>📊</span> Estadísticas
                 </a>
-                <a class="nav-item" data-view="config" id="nav-config">
-                    <span>⚙️</span> Configuración
+                <a class="nav-item" data-view="minifigures" id="nav-minifigures">
+                    <span>🧑</span> Minifiguras
                 </a>
+                <a class="nav-item" data-view="physics" id="nav-physics">
+                    <span>⚙️</span> Física Piezas
+                </a>
+                
             </nav>
             
             <div class="system-status">
@@ -251,8 +301,8 @@
                     <div class="set-selector-wrap" style="flex: 1.5; min-width: 300px; display: flex; align-items: center; gap: 12px;">
                         <label for="select-target-set" style="white-space: nowrap; color: var(--text-secondary); font-size: 0.9rem; font-weight: 500;">🎯 Set Objetivo:</label>
                         <select id="select-target-set" style="flex: 1; background: rgba(30, 41, 59, 0.7); border: 1px solid var(--border); border-radius: 6px; color: #fff; padding: 6px 12px; font-family: Outfit, sans-serif; font-size: 0.9rem; outline: none; cursor: pointer; transition: var(--transition);">
-                            <option value="75078-1" selected>75078-1 - Imperial Troop Transport (40 piezas)</option>
-                            <option value="75280-1">75280-1 - 501st Legion Clone Troopers (285 piezas)</option>
+                            <option value="75078-1" selected>75078-1 - Imperial Troop Transport (42 piezas únicas, 125 totales)</option>
+                            <option value="75280-1">75280-1 - 501st Legion Clone Troopers (258 piezas)</option>
                             <option value="75218-1">75218-1 - X-Wing Starfighter (730 piezas)</option>
                             <option value="75337-1">75337-1 - AT-TE Walker (1082 piezas)</option>
                         </select>
@@ -327,6 +377,17 @@
                 <!-- Sección: Recuento e Inventario de Inferencia vs Set Original -->
                 <div class="glass-panel" style="margin-top: 24px;">
                     <h3 class="panel-header">📊 Recuento e Inventario de Inferencia (<span id="inference-set-title">Set 75078-1</span>)</h3>
+                    <div class="inv-totals-bar">
+                        <div class="inv-total-item set-total">
+                            <span>Piezas del set (real):</span>
+                            <strong id="inv-total-set">0</strong>
+                        </div>
+                        <div class="inv-totals-divider"></div>
+                        <div class="inv-total-item det-total">
+                            <span>Piezas detectadas:</span>
+                            <strong id="inv-total-detected">0</strong>
+                        </div>
+                    </div>
                     <div style="overflow-x: auto; width: 100%;">
                         <table class="inventory-table" style="width: 100%; border-collapse: collapse; text-align: left; font-size: 0.9rem;">
                             <thead>
@@ -343,8 +404,13 @@
                             </tbody>
                         </table>
                     </div>
+                    <!-- Tarjetas de deteccion por instancia -->
+                    <div id="session-detection-details">
+                        <div class="det-section-empty">Sin detecciones registradas aun. Inicia una sesion de inferencia.</div>
+                    </div>
                 </div>
             </section>
+
 
             <!-- ── VISTA: BÚSQUEDA DE SETS REALES ── -->
             <section id="view-setsearch" class="page-view">
@@ -486,39 +552,181 @@
                 </div>
             </section>
 
-            <!-- ── VISTA: CONFIGURACIÓN ── -->
-            <section id="view-config" class="page-view">
+            
+
+
+            <!-- ── VISTA: MINIFIGURAS ── -->
+            <section id="view-minifigures" class="page-view">
                 <div class="dashboard-header">
-                    <h2 class="dashboard-title">Ajustes del Sistema</h2>
+                    <h2 class="dashboard-title">Ensamblaje de Minifiguras 3D</h2>
+                    <span id="minifig-status-badge" class="piece-conf low">Sin seleccionar</span>
                 </div>
-                <div class="main-view-grid" style="grid-template-columns:1fr 1fr;">
+
+                <!-- Selector de Minifigura -->
+                <div class="glass-panel" style="flex-direction:row; gap:16px; align-items:flex-end;">
+                    <div class="config-group" style="flex-grow:1; margin-bottom:0;">
+                        <label>Minifigura disponible (de los sets de test de inferencia)</label>
+                        <select id="minifig-select" style="width:100%; background:rgba(30,41,59,0.7); border:1px solid var(--border); border-radius:6px; color:#fff; padding:8px 12px; font-family:Outfit,sans-serif; font-size:0.9rem; outline:none;">
+                            <option value="">-- Cargando minifiguras --</option>
+                        </select>
+                    </div>
+                    <button id="btn-load-minifig" class="btn btn-secondary" style="height:42px;">Ver Piezas</button>
+                    <button id="btn-assemble-minifig" class="btn btn-primary" style="height:42px;" disabled>Ensamblar 3D</button>
+                </div>
+
+                <!-- Grid de componentes 2D -->
+                <div id="minifig-components-panel" style="display:none;">
                     <div class="glass-panel">
-                        <h3 class="panel-header">Inferencia YOLOv8</h3>
-                        <div class="config-group">
-                            <label>Umbral de Confianza (Confidence Threshold)</label>
-                            <input type="number" id="cfg-conf-threshold" step="0.05" min="0.1" max="0.95" value="0.5">
-                        </div>
-                        <div class="config-group">
-                            <label>Dispositivo de Ejecución</label>
-                            <select id="cfg-device">
-                                <option value="mps">Metal Performance Shaders (Apple Silicon)</option>
-                                <option value="cpu">CPU (Lento)</option>
-                            </select>
+                        <h3 class="panel-header" id="minifig-name-header">Componentes de la Minifigura</h3>
+                        <div id="minifig-components-grid" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(140px,1fr)); gap:16px; padding:8px;">
                         </div>
                     </div>
-                    <div class="glass-panel">
-                        <h3 class="panel-header">Cinta Transportadora</h3>
-                        <div class="config-group">
-                            <label>Velocidad de Cinta (m/min)</label>
-                            <input type="number" id="cfg-belt-speed" step="0.5" min="1.0" max="10.0" value="5.0">
+                </div>
+
+                <!-- Visor 3D Three.js -->
+                <div id="minifig-viewer-panel" class="glass-panel" style="display:none; flex-direction:column; gap:12px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center;">
+                        <h3 class="panel-header" style="margin:0;">Visor 3D — Minifigura Ensamblada</h3>
+                        <div id="minifig-db-badge" style="font-size:0.8rem; color:#4ade80; display:none;">✓ Guardada en BD</div>
+                    </div>
+                    <div id="minifig-3d-container" style="width:100%; height:480px; background:#0f172a; border-radius:12px; border:1px solid var(--border); position:relative;">
+                        <div id="minifig-3d-loading" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--text-secondary);">
+                            <span>Cargando modelo 3D...</span>
                         </div>
+                        <canvas id="minifig-3d-canvas" style="width:100%;height:100%;border-radius:12px;"></canvas>
+                    </div>
+                    <p style="font-size:0.78rem; color:var(--text-secondary); text-align:center;">
+                        🖱️ Click + arrastrar para rotar &nbsp;|&nbsp; Rueda para zoom &nbsp;|&nbsp; Click derecho + arrastrar para desplazar
+                    </p>
+                </div>
+
+                <!-- Estado de ensamblaje -->
+                <div id="minifig-assemble-status" style="display:none;" class="glass-panel">
+                    <div style="display:flex; align-items:center; gap:12px;">
+                        <div class="drawer-spinner"></div>
+                        <span id="minifig-assemble-msg">Ensamblando con Blender... Esto puede tomar unos minutos.</span>
                     </div>
                 </div>
             </section>
 
+            <!-- ── VISTA: FÍSICA PIEZAS ── -->
+            <section id="view-physics" class="page-view">
+                <div class="dashboard-header">
+                    <h2 class="dashboard-title">Simulación Física de Piezas en Cinta</h2>
+                    <span id="physics-status-badge" class="piece-conf low">Inactivo</span>
+                </div>
+
+                <!-- Formulario de Configuración de la Caída -->
+                <div class="glass-panel" style="flex-direction:row; gap:16px; align-items:flex-end; flex-wrap: wrap;">
+                    <div class="config-group" style="flex: 1.5; min-width: 200px; margin-bottom:0;">
+                        <label for="physics-part-select">Selecciona una Referencia LEGO</label>
+                        <select id="physics-part-select" style="width:100%; background:rgba(30,41,59,0.7); border:1px solid var(--border); border-radius:6px; color:#fff; padding:8px 12px; font-family:Outfit,sans-serif; font-size:0.9rem; outline:none;">
+                            <option value="3004">3004 - Brick 1x2 (Gris)</option>
+                            <option value="3022">3022 - Plate 2x2 (Gris)</option>
+                            <option value="3710">3710 - Plate 1x4 (Gris)</option>
+                            <option value="3020">3020 - Plate 2x4 (Gris)</option>
+                            <option value="11477">11477 - Slope Curved 2x1 (Gris)</option>
+                            <option value="59900">59900 - Cone 1x1 (Rojo)</option>
+                            <option value="3068">3068 - Tile 2x2 (Gris)</option>
+                            <option value="2877">2877 - Brick 1x2 Grille (Negro)</option>
+                            <option value="sw0614">sw0614 - Stormtrooper Rebels (Blanco)</option>
+                        </select>
+                    </div>
+                    <div class="config-group" style="flex: 1; min-width: 150px; margin-bottom:0;">
+                        <label for="physics-color-select">Color de la Pieza</label>
+                        <select id="physics-color-select" style="width:100%; background:rgba(30,41,59,0.7); border:1px solid var(--border); border-radius:6px; color:#fff; padding:8px 12px; font-family:Outfit,sans-serif; font-size:0.9rem; outline:none;">
+                            <option value="#A0A5A9" selected>Medium Stone Gray (Gris)</option>
+                            <option value="#FFFFFF">White (Blanco)</option>
+                            <option value="#1B1B1B">Black (Negro)</option>
+                            <option value="#C91A09">Red (Rojo)</option>
+                            <option value="#1C6DCD">Blue (Azul)</option>
+                            <option value="#F2CD37">Yellow (Amarillo)</option>
+                            <option value="#FE8A18">Orange (Naranja)</option>
+                            <option value="#257A3E">Green (Verde)</option>
+                        </select>
+                    </div>
+                    <div class="config-group" style="flex: 1; min-width: 150px; margin-bottom:0;">
+                        <label for="physics-part-custom">O escribe Referencia Manual</label>
+                        <input type="text" id="physics-part-custom" placeholder="Ej. 3001" style="width:100%; background:rgba(30,41,59,0.7); border:1px solid var(--border); border-radius:8px; color:#fff; padding:8px; font-family:inherit;">
+                    </div>
+                    <button id="btn-simulate-physics" class="btn btn-primary" style="height:42px;">⚡ Simular Caída y Renderizar</button>
+                </div>
+
+                <!-- Estado del Proceso (Loader y Consola) -->
+                <div id="physics-progress-panel" style="display:none;" class="glass-panel">
+                    <div style="display:flex; align-items:center; gap:16px;">
+                        <div class="drawer-spinner"></div>
+                        <div>
+                            <div style="font-weight:600; color:#fff;" id="physics-progress-status">Simulando caída en Blender...</div>
+                            <div style="font-size:0.85rem; color:var(--text-secondary);" id="physics-progress-subtitle">Esto puede tardar entre 10 y 20 segundos debido al cómputo de la simulación de físicas e iluminación fotorrealista.</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Panel Principal: Render del Resultado (Suprimido/Oculto) -->
+                <div class="glass-panel" id="physics-main-render-panel" style="display: none; width: 100%; flex-direction: column; align-items: center; justify-content: center; min-height: 480px;">
+                    <h3 class="panel-header" style="width: 100%; text-align: left; margin-bottom: 12px;">Vista Cenital Resultante (15 Piezas Estabilizadas)</h3>
+                    <div id="physics-render-container" style="width: 100%; max-width: 100%; aspect-ratio: 4/3; display: flex; justify-content: center; align-items: center; background: rgba(0,0,0,0.3); border-radius: 16px; overflow: hidden; border: 1px solid var(--border); position: relative;">
+                        <div id="physics-render-placeholder" style="color:var(--text-secondary); text-align:center; padding:40px;">
+                            <span style="font-size: 3rem; display: block; margin-bottom: 12px;">📐</span>
+                            Selecciona una pieza y haz click en "Simular Caída y Renderizar" para iniciar la simulación física de 3D.
+                        </div>
+                        <img id="physics-render-image" src="" alt="Cinta de inferencia simulada con físicas reales" style="display:none; width:100%; height:100%; object-fit:cover;">
+                    </div>
+                </div>
+
+                <!-- Carrusel de Acercamientos (Zoom 5x5 cm) -->
+                <div class="glass-panel" id="physics-carousel-panel" style="display:flex; flex-direction:column; gap:12px; width: 100%;">
+                    <h3 class="panel-header">Validación de Estabilidad (Cámara a Z=10 cm sobre cada pieza)</h3>
+                    <div id="physics-carousel-track" style="display:flex; gap:16px; overflow-x:auto; padding:12px 0; width: 100%; scrollbar-width: thin;">
+                        <div id="physics-carousel-placeholder" style="color:var(--text-secondary); text-align:center; padding:40px; width: 100%;">
+                            <span style="font-size: 3rem; display: block; margin-bottom: 12px;">📐</span>
+                            Selecciona una pieza y haz click en "Simular Caída y Renderizar" para iniciar la simulación de caídas estables.
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Panel Inferior: Explicación Técnica Interactiva -->
+                <div class="glass-panel" style="width: 100%;">
+                    <h3 class="panel-header">¿Cómo funciona la estabilización física 3D?</h3>
+                    <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap:20px; font-size:0.9rem; line-height:1.5; color:var(--text-primary);">
+                        <div style="background: rgba(255, 255, 255, 0.02); border-left: 3px solid var(--accent); padding: 16px; border-radius: 8px;">
+                            <h4 style="font-weight:600; color:#fff; margin-bottom:6px; font-size:0.9rem;">Paso 1: Entorno de Físicas Gravedatorias</h4>
+                            <p style="color:var(--text-secondary); font-size:0.85rem;">
+                                Se inicializa un resolvedor rígido en Blender con gravedad de $-9.81\text{ m/s}^2$. La cinta transportadora se modela como un colisionador de caja sólida a $Z=0$ con fricción de $0.8$ y rebote bajo de $0.05$ con **margen de colisión nulo ($0.0$)** para un contacto perfecto de las piezas con la superficie.
+                            </p>
+                        </div>
+
+                        <div style="background: rgba(255, 255, 255, 0.02); border-left: 3px solid var(--accent); padding: 16px; border-radius: 8px;">
+                            <h4 style="font-weight:600; color:#fff; margin-bottom:6px; font-size:0.9rem;">Paso 2: Generación en Cuadrícula y Dispersión</h4>
+                            <p style="color:var(--text-secondary); font-size:0.85rem;">
+                                Para evitar solapamientos imposibles, las 15 piezas se sitúan en una rejilla aleatoria de $4\times4$. Cada una recibe una traslación caótica en $X$ e $Y$ de $\pm 0.5\text{ cm}$, una altura de caída inicial real de **$10\text{ cm}$** ($10.0$ unidades en Blender) y una rotación 3D completamente aleatoria.
+                            </p>
+                        </div>
+
+                        <div style="background: rgba(255, 255, 255, 0.02); border-left: 3px solid var(--accent); padding: 16px; border-radius: 8px;">
+                            <h4 style="font-weight:600; color:#fff; margin-bottom:6px; font-size:0.9rem;">Paso 3: Simulación de Caída Libre y Colisión</h4>
+                            <p style="color:var(--text-secondary); font-size:0.85rem;">
+                                Se corre el resolvedor físico durante **35 fotogramas**. Las piezas caen de forma realista e impactan la superficie casi de inmediato. Se anula el margen de colisión interno de los clones a $0.0$ para evitar que las mallas queden flotando sobre la cinta o suspendidas entre sí.
+                            </p>
+                        </div>
+
+                        <div style="background: rgba(255, 255, 255, 0.02); border-left: 3px solid var(--accent); padding: 16px; border-radius: 8px;">
+                            <h4 style="font-weight:600; color:#fff; margin-bottom:6px; font-size:0.9rem;">Paso 4: Congelado y Render Cenital a Z=35</h4>
+                            <p style="color:var(--text-secondary); font-size:0.85rem;">
+                                Al finalizar en el fotograma 35, se aplica la matriz de transformación visual y se inactivan las dinámicas. Se efectúa el renderizado en Cycles congelado en este frame final. Luego, se proyectan las coordenadas 3D al plano 2D de la cámara cenital ($Z=37\text{ cm}$) para recortar y validar la estabilidad individual 1:1.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            </section>
         </main>
     </div>
     
     <script src="js/app.js"></script>
+    <script src="js/detection_patch.js"></script>
+    <script src="js/inventory_logic.js"></script>
+    <script src="js/minifigures.js"></script>
+    <script src="js/physics_logic.js"></script>
 </body>
 </html>

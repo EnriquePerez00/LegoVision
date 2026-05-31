@@ -4,6 +4,8 @@ import json
 import threading
 import subprocess
 import webview
+import http.server
+import socketserver
 
 # Añadir directorio raíz al path para importar de database e inference
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -17,6 +19,28 @@ from database import supabase_client
 # Hilo de entrenamiento activo (solo uno a la vez)
 _training_thread: threading.Thread | None = None
 _indexing_thread: threading.Thread | None = None
+
+
+
+def _start_static_server(port=8006):
+    """Inicia un servidor HTTP estático en gui/static/ para servir GLBs y otros assets."""
+    static_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
+    class SilentHandler(http.server.SimpleHTTPRequestHandler):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, directory=static_dir, **kwargs)
+        def log_message(self, format, *args):
+            pass  # suppress logs
+        def end_headers(self):
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Cache-Control", "no-cache")
+            super().end_headers()
+    try:
+        httpd = socketserver.TCPServer(("", port), SilentHandler)
+        httpd.allow_reuse_address = True
+        print(f"[LegoVision Static] Servidor estático en http://localhost:{port}/")
+        httpd.serve_forever()
+    except Exception as e:
+        print(f"[LegoVision Static] Error iniciando servidor: {e}")
 
 
 class ApiBridge:
@@ -54,17 +78,43 @@ class ApiBridge:
     # ------------------------------------------------------------------
 
     def get_set_inventory(self, set_id: str) -> dict:
-        """Obtiene el inventario de un set rápidamente sin generar renders 3D."""
+        """Obtiene el inventario de un set rápidamente desde la BD o catálogo estático."""
         try:
-            from database import set_catalog
-            set_data = set_catalog.get_set_data(set_id)
-            for part in set_data["parts"]:
-                part["image"] = "" # Sin renders 3D
+            # 1. Intentar obtener desde la base de datos
+            set_data = supabase_client.get_set_from_db(set_id)
+            
+            if not set_data:
+                # 2. Si no existe en la BD, buscar en catálogo y persistir
+                print(f"[LegoVision GUI] Set {set_id} no encontrado en BD. Obteniendo de set_catalog y guardando...")
+                from database import set_catalog
+                set_data = set_catalog.get_set_data(set_id)
+                supabase_client.save_set_to_db(set_id, set_data)
+            
+            for part in set_data.get("parts", []):
+                ref = part["ref"]
+                color_hex = part.get("color_hex", "#A0A5A9").replace("#", "")
+                filename = f"render_{ref}_{color_hex}.png"
+                render_path = os.path.join(project_root, "data", "synthetic_renders", filename)
+                if os.path.exists(render_path):
+                    part["image"] = f"http://localhost:8005/renders/{filename}"
+                else:
+                    part["image"] = ""
+                    
+            for fig in set_data.get("minifigures", []):
+                ref = fig["ref"]
+                color_hex = "F2F3F2"
+                filename = f"render_{ref}_{color_hex}.png"
+                render_path = os.path.join(project_root, "data", "synthetic_renders", filename)
+                if os.path.exists(render_path):
+                    fig["image"] = f"http://localhost:8005/renders/{filename}"
+                else:
+                    fig["image"] = ""
+                
             return {
                 "status": "success",
                 "set_name": set_data["name"],
-                "minifigures": set_data["minifigures"],
-                "parts": set_data["parts"],
+                "minifigures": set_data.get("minifigures", []),
+                "parts": set_data.get("parts", []),
             }
         except Exception as e:
             print(f"[LegoVision GUI ERROR] get_set_inventory: {e}")
@@ -132,7 +182,7 @@ class ApiBridge:
             python_exec = venv_python if os.path.exists(venv_python) else sys.executable
 
             # Indexar embeddings DINOv2 usando renders existentes o imágenes de referencia
-            idx_script = os.path.join(project_root, "training", "index_embeddings.py")
+            idx_script = os.path.join(project_root, "training", "index_synthetic_renders.py")
             print("[LegoVision GUI] Indexando embeddings DINOv2...")
             proc2 = subprocess.Popen(
                 [python_exec, idx_script],
@@ -187,6 +237,158 @@ class ApiBridge:
             return {"status": "error", "count": 0, "message": str(e)}
 
 
+
+    # ------------------------------------------------------------------
+    # Minifiguras — Ensamblaje 3D
+    # ------------------------------------------------------------------
+
+    def get_minifigures_for_sets(self) -> dict:
+        try:
+            sys.path.insert(0, project_root)
+            from scripts.assemble_minifig import get_minifigs_from_test_sets, MINIFIG_DATABASE
+            minifigs = get_minifigs_from_test_sets()
+            return {"status": "success", "minifigures": minifigs}
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+
+    def get_minifig_components(self, minifig_ref: str) -> dict:
+        try:
+            from scripts.assemble_minifig import MINIFIG_DATABASE
+            if minifig_ref not in MINIFIG_DATABASE:
+                return {"status": "error", "message": "Minifigura no encontrada"}
+            config = MINIFIG_DATABASE[minifig_ref]
+            # Deep copy to avoid mutating the original database
+            import copy
+            components = copy.deepcopy(config["components"])
+            for comp in components:
+                part_ref = comp["part_file"].replace(".dat", "")
+                ldraw_color = comp["ldraw_color"]
+                color_hex = comp["color_hex"].replace("#", "")
+                # 1. Try local synthetic render first
+                filename = "render_" + part_ref + "_" + color_hex + ".png"
+                render_path = os.path.join(project_root, "data", "synthetic_renders", filename)
+                if os.path.exists(render_path):
+                    comp["image"] = "http://localhost:8005/renders/" + filename
+                    comp["image_source"] = "local_render"
+                else:
+                    # 2. Fallback: BrickLink public image API
+                    # URL format: https://img.bricklink.com/ItemImage/PN/{color_id}/{part_ref}.png
+                    # BrickLink uses their own color IDs — use ldraw_color as approximation
+                    bl_url = f"https://img.bricklink.com/ItemImage/PN/{ldraw_color}/{part_ref}.png"
+                    comp["image"] = bl_url
+                    comp["image_source"] = "bricklink"
+            return {"status": "success", "name": config["name"], "components": components}
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+
+    def get_minifig_assembly_status(self, minifig_ref: str) -> dict:
+        try:
+            glb_path = os.path.join(project_root, "gui", "static", "models", minifig_ref + ".glb")
+            glb_exists = os.path.exists(glb_path)
+            db_record = None
+            try:
+                db_record = supabase_client.get_minifig_assembly(minifig_ref)
+            except Exception:
+                pass
+            return {
+                "status": "success",
+                "assembled": glb_exists,
+                "in_db": db_record is not None,
+                "glb_url": "http://localhost:8006/models/" + minifig_ref + ".glb" if glb_exists else None,
+                "db_record": db_record
+            }
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+
+    def assemble_minifig(self, minifig_ref: str) -> dict:
+        import threading
+        def _run():
+            try:
+                from scripts.assemble_minifig import build_minifig
+                result = build_minifig(minifig_ref, save_to_db=True)
+                print("[LegoVision GUI] Ensamblaje completado:", result)
+            except Exception as e:
+                print("[LegoVision GUI ERROR] assemble_minifig:", e)
+        t = threading.Thread(target=_run, daemon=True)
+        t.start()
+        return {"status": "started", "message": "Ensamblaje iniciado en segundo plano para " + minifig_ref}
+
+    def simulate_physics_scatter(self, part_ref: str, color_hex: str) -> dict:
+        """
+        Ejecuta la simulación de física de caída y estabilización en Blender
+        para 15 piezas de la referencia y color especificados.
+        """
+        try:
+            blender_path = os.getenv("BLENDER_PATH", "/Users/I764690/Applications/Blender.app/Contents/MacOS/Blender")
+            if not os.path.exists(blender_path):
+                return {
+                    "status": "error",
+                    "message": f"Ejecutable de Blender no encontrado en la ruta: {blender_path}. Por favor, configúralo en el archivo .env."
+                }
+
+            script_path = os.path.join(project_root, "scripts", "physics_belt_generator.py")
+            clean_color = color_hex.replace("#", "")
+            output_filename = f"physics_scatter_{part_ref}_{clean_color}.png"
+            output_path = os.path.join(project_root, "data", "synthetic_renders", output_filename)
+            
+            # Asegurar que el directorio de destino exista
+            os.makedirs(os.path.dirname(output_path), exist_ok=True)
+
+            cmd = [
+                blender_path,
+                "-b",
+                "-P", script_path,
+                "--",
+                "--part_ref", part_ref,
+                "--color_hex", color_hex,
+                "--output_path", output_path
+            ]
+            
+            print(f"[LegoVision Physics] Lanzando simulación física: {' '.join(cmd)}")
+            
+            # Ejecutar el subproceso bloqueante para esta petición del UX
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            
+            if result.returncode != 0:
+                print(f"[LegoVision Physics ERROR] Blender falló con código {result.returncode}")
+                print(f"Stdout:\n{result.stdout[-1000:]}")
+                print(f"Stderr:\n{result.stderr[-1000:]}")
+                return {
+                    "status": "error",
+                    "message": f"Blender falló con código de salida {result.returncode}",
+                    "details": result.stderr[-500:] if result.stderr else "Sin detalles de error."
+                }
+                
+            crop0_filename = f"physics_scatter_{part_ref}_{clean_color}_crop_0.png"
+            crop0_path = os.path.join(os.path.dirname(output_path), crop0_filename)
+            
+            if not os.path.exists(crop0_path):
+                return {
+                    "status": "error",
+                    "message": "La simulación finalizó pero no se generaron los recortes individuales de piezas esperados."
+                }
+                
+            # Cargar la lista de recortes pre-renderizados a Z=10
+            crops = []
+            for i in range(15):
+                crop_filename = f"physics_scatter_{part_ref}_{clean_color}_crop_{i}.png"
+                crop_path = os.path.join(os.path.dirname(output_path), crop_filename)
+                if os.path.exists(crop_path):
+                    crops.append(f"http://localhost:8005/renders/{crop_filename}")
+            
+            # Devolver URL de la imagen (fallback al crop 0) y los renders del carrusel
+            image_url = f"http://localhost:8005/renders/{crop0_filename}"
+            return {
+                "status": "success",
+                "image_url": image_url,
+                "crops": crops,
+                "output_path": crop0_path,
+                "message": f"Simulación física (caída a 5cm) y renderizado a Z=10 completados para 15 vistas de plano."
+            }
+        except Exception as e:
+            print(f"[LegoVision Physics ERROR] Excepción: {e}")
+            return {"status": "error", "message": str(e)}
+
 def main():
     # Obtener la ruta del archivo HTML estático
     gui_dir = os.path.dirname(os.path.abspath(__file__))
@@ -210,6 +412,10 @@ def main():
         resizable=True,
         min_size=(1000, 600),
     )
+
+    # Arrancar servidor estático para GLBs y assets en puerto 8006
+    static_thread = threading.Thread(target=_start_static_server, args=(8006,), daemon=True)
+    static_thread.start()
 
     # Arrancar bucle de interfaz
     webview.start(debug=True)

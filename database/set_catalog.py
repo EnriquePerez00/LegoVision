@@ -6,66 +6,62 @@ REAL_SETS = {
         "name": 'Imperial Troop Transport (Star Wars Rebels)',
         "minifigures": [
             {
-                        "ref": "sw0614",
-                        "name": "Stormtrooper (Rebels) with Azure Vents",
-                        "qty": 4
+                "ref": "sw0614",
+                "name": "Stormtrooper (Rebels) with Azure Vents",
+                "qty": 4
             }
-],
+        ],
         "parts": [
-            {
-                        "ref": "3004",
-                        "color_code": "85",
-                        "color_hex": "#A0A5A9",
-                        "color_name": "Light Bluish Gray",
-                        "qty": 8
-            },
-            {
-                        "ref": "3001",
-                        "color_code": "85",
-                        "color_hex": "#A0A5A9",
-                        "color_name": "Light Bluish Gray",
-                        "qty": 2
-            },
-            {
-                        "ref": "3020",
-                        "color_code": "85",
-                        "color_hex": "#A0A5A9",
-                        "color_name": "Light Bluish Gray",
-                        "qty": 4
-            },
-            {
-                        "ref": "3022",
-                        "color_code": "85",
-                        "color_hex": "#A0A5A9",
-                        "color_name": "Light Bluish Gray",
-                        "qty": 12
-            },
-            {
-                        "ref": "2877",
-                        "color_code": "0",
-                        "color_hex": "#1B1B1B",
-                        "color_name": "Black",
-                        "qty": 4
-            },
-            {
-                        "ref": "59900",
-                        "color_code": "36",
-                        "color_hex": "#C91A09",
-                        "color_name": "Trans-Red",
-                        "qty": 4
-            },
-            {
-                        "ref": "3003",
-                        "color_code": "85",
-                        "color_hex": "#A0A5A9",
-                        "color_name": "Light Bluish Gray",
-                        "qty": 2
-            }
-]
+            { "ref": "3004", "color_code": "85", "color_hex": "#A0A5A9", "color_name": "Light Bluish Gray", "qty": 8 },
+            { "ref": "3001", "color_code": "85", "color_hex": "#A0A5A9", "color_name": "Light Bluish Gray", "qty": 2 },
+            { "ref": "3020", "color_code": "85", "color_hex": "#A0A5A9", "color_name": "Light Bluish Gray", "qty": 4 },
+            { "ref": "3022", "color_code": "85", "color_hex": "#A0A5A9", "color_name": "Light Bluish Gray", "qty": 14 },
+            { "ref": "2877", "color_code": "0", "color_hex": "#1B1B1B", "color_name": "Black", "qty": 4 },
+            { "ref": "59900", "color_code": "36", "color_hex": "#C91A09", "color_name": "Trans-Red", "qty": 4 },
+            { "ref": "3003", "color_code": "85", "color_hex": "#A0A5A9", "color_name": "Light Bluish Gray", "qty": 2 },
+            { "ref": "3002", "color_code": "85", "color_hex": "#A0A5A9", "color_name": "Light Bluish Gray", "qty": 2 },
+            { "ref": "3005", "color_code": "85", "color_hex": "#A0A5A9", "color_name": "Light Bluish Gray", "qty": 4 },
+            { "ref": "3010", "color_code": "85", "color_hex": "#A0A5A9", "color_name": "Light Bluish Gray", "qty": 2 },
+            { "ref": "3021", "color_code": "85", "color_hex": "#A0A5A9", "color_name": "Light Bluish Gray", "qty": 2 },
+            { "ref": "3023", "color_code": "0", "color_hex": "#1B1B1B", "color_name": "Black", "qty": 10 },
+            { "ref": "3024", "color_code": "0", "color_hex": "#1B1B1B", "color_name": "Black", "qty": 6 },
+            { "ref": "2420", "color_code": "85", "color_hex": "#A0A5A9", "color_name": "Light Bluish Gray", "qty": 2 },
+            { "ref": "3710", "color_code": "85", "color_hex": "#A0A5A9", "color_name": "Light Bluish Gray", "qty": 3 },
+            { "ref": "3622", "color_code": "85", "color_hex": "#A0A5A9", "color_name": "Light Bluish Gray", "qty": 2 },
+            { "ref": "3665", "color_code": "0", "color_hex": "#1B1B1B", "color_name": "Black", "qty": 2 },
+            { "ref": "3039", "color_code": "85", "color_hex": "#A0A5A9", "color_name": "Light Bluish Gray", "qty": 2 },
+            { "ref": "4070", "color_code": "85", "color_hex": "#A0A5A9", "color_name": "Light Bluish Gray", "qty": 2 },
+            { "ref": "6141", "color_code": "4", "color_hex": "#C91A09", "color_name": "Red", "qty": 4 },
+            { "ref": "15573", "color_code": "85", "color_hex": "#A0A5A9", "color_name": "Light Bluish Gray", "qty": 2 },
+            { "ref": "2412", "color_code": "0", "color_hex": "#1B1B1B", "color_name": "Black", "qty": 2 },
+            { "ref": "3069", "color_code": "85", "color_hex": "#A0A5A9", "color_name": "Light Bluish Gray", "qty": 2 },
+            { "ref": "3068", "color_code": "85", "color_hex": "#A0A5A9", "color_name": "Light Bluish Gray", "qty": 2 },
+            { "ref": "60478", "color_code": "0", "color_hex": "#1B1B1B", "color_name": "Black", "qty": 2 },
+            { "ref": "48336", "color_code": "0", "color_hex": "#1B1B1B", "color_name": "Black", "qty": 2 },
+            { "ref": "32000", "color_code": "85", "color_hex": "#A0A5A9", "color_name": "Light Bluish Gray", "qty": 2 },
+            { "ref": "3700", "color_code": "85", "color_hex": "#A0A5A9", "color_name": "Light Bluish Gray", "qty": 2 },
+            { "ref": "3701", "color_code": "85", "color_hex": "#A0A5A9", "color_name": "Light Bluish Gray", "qty": 1 },
+            { "ref": "4032", "color_code": "0", "color_hex": "#1B1B1B", "color_name": "Black", "qty": 2 },
+            { "ref": "3062", "color_code": "85", "color_hex": "#A0A5A9", "color_name": "Light Bluish Gray", "qty": 2 },
+            { "ref": "85984", "color_code": "85", "color_hex": "#A0A5A9", "color_name": "Light Bluish Gray", "qty": 2 },
+            { "ref": "54200", "color_code": "85", "color_hex": "#A0A5A9", "color_name": "Light Bluish Gray", "qty": 3 },
+            { "ref": "99206", "color_code": "85", "color_hex": "#A0A5A9", "color_name": "Light Bluish Gray", "qty": 2 },
+            { "ref": "3037", "color_code": "85", "color_hex": "#A0A5A9", "color_name": "Light Bluish Gray", "qty": 1 },
+            { "ref": "3298", "color_code": "85", "color_hex": "#A0A5A9", "color_name": "Light Bluish Gray", "qty": 1 },
+            { "ref": "11477", "color_code": "85", "color_hex": "#A0A5A9", "color_name": "Light Bluish Gray", "qty": 2 },
+            { "ref": "15068", "color_code": "85", "color_hex": "#A0A5A9", "color_name": "Light Bluish Gray", "qty": 2 },
+            { "ref": "98138", "color_code": "4", "color_hex": "#C91A09", "color_name": "Red", "qty": 3 },
+            { "ref": "2431", "color_code": "85", "color_hex": "#A0A5A9", "color_name": "Light Bluish Gray", "qty": 2 },
+            { "ref": "6636", "color_code": "85", "color_hex": "#A0A5A9", "color_name": "Light Bluish Gray", "qty": 1 }
+        ]
     },
     "75280-1": {
         "name": '501st Legion Clone Troopers',
-        "minifigures": [],
+        "minifigures": [
+            {"ref": "sw1093", "name": "Clone Trooper, 501st Legion", "qty": 3},
+            {"ref": "sw1094", "name": "Clone Trooper Captain, 501st Legion", "qty": 1},
+            {"ref": "sw1095", "name": "Battle Droid", "qty": 2},
+        ],
         "parts": [
             {
                         "ref": "75280stk01",
@@ -869,7 +865,10 @@ REAL_SETS = {
     },
     "75218-1": {
         "name": 'X-Wing Starfighter',
-        "minifigures": [],
+        "minifigures": [
+            {"ref": "sw0886", "name": "Luke Skywalker (X-Wing Pilot)", "qty": 1},
+            {"ref": "sw0536", "name": "R2-D2", "qty": 1},
+        ],
         "parts": [
             {
                         "ref": "75218stk01",
@@ -2366,7 +2365,12 @@ REAL_SETS = {
     },
     "75337-1": {
         "name": 'AT-TE Walker',
-        "minifigures": [],
+        "minifigures": [
+            {"ref": "sw1194", "name": "Ahsoka Tano", "qty": 1},
+            {"ref": "sw1195", "name": "Barriss Offee", "qty": 1},
+            {"ref": "sw1093", "name": "Clone Trooper, 501st Legion", "qty": 6},
+            {"ref": "sw1196", "name": "Clone Commander Bly", "qty": 1},
+        ],
         "parts": [
             {
                         "ref": "75337stk01",

@@ -187,10 +187,44 @@ const SET_75078_1_PARTS = [
     { ref: "3004", name: "Brick 1x2", w: 28, h: 14, color: "#A0A5A9", colorName: "Gris", qty: 8 },
     { ref: "3001", name: "Brick 2x4", w: 56, h: 28, color: "#A0A5A9", colorName: "Gris", qty: 2 },
     { ref: "3020", name: "Plate 2x4", w: 56, h: 28, color: "#A0A5A9", colorName: "Gris", qty: 4 },
-    { ref: "3022", name: "Plate 2x2", w: 28, h: 28, color: "#A0A5A9", colorName: "Gris", qty: 12 },
+    { ref: "3022", name: "Plate 2x2", w: 28, h: 28, color: "#A0A5A9", colorName: "Gris", qty: 14 },
     { ref: "2877", name: "Brick 1x2 Grille", w: 28, h: 14, color: "#1B1B1B", colorName: "Negro", qty: 4 },
     { ref: "59900", name: "Cone 1x1", w: 14, h: 14, color: "#C91A09", colorName: "Rojo Trans.", qty: 4 },
-    { ref: "3003", name: "Brick 2x2", w: 28, h: 28, color: "#A0A5A9", colorName: "Gris", qty: 2 }
+    { ref: "3003", name: "Brick 2x2", w: 28, h: 28, color: "#A0A5A9", colorName: "Gris", qty: 2 },
+    { ref: "3002", name: "Brick 2x3", w: 42, h: 28, color: "#A0A5A9", colorName: "Gris", qty: 2 },
+    { ref: "3005", name: "Brick 1x1", w: 14, h: 14, color: "#A0A5A9", colorName: "Gris", qty: 4 },
+    { ref: "3010", name: "Brick 1x4", w: 56, h: 14, color: "#A0A5A9", colorName: "Gris", qty: 2 },
+    { ref: "3021", name: "Plate 2x3", w: 42, h: 28, color: "#A0A5A9", colorName: "Gris", qty: 2 },
+    { ref: "3023", name: "Plate 1x2", w: 28, h: 14, color: "#1B1B1B", colorName: "Negro", qty: 10 },
+    { ref: "3024", name: "Plate 1x1", w: 14, h: 14, color: "#1B1B1B", colorName: "Negro", qty: 6 },
+    { ref: "2420", name: "Plate 2x2 Corner", w: 28, h: 28, color: "#A0A5A9", colorName: "Gris", qty: 2 },
+    { ref: "3710", name: "Plate 1x4", w: 56, h: 14, color: "#A0A5A9", colorName: "Gris", qty: 3 },
+    { ref: "3622", name: "Brick 1x3", w: 42, h: 14, color: "#A0A5A9", colorName: "Gris", qty: 2 },
+    { ref: "3665", name: "Slope Inverted 45 2x1", w: 28, h: 14, color: "#1B1B1B", colorName: "Negro", qty: 2 },
+    { ref: "3039", name: "Slope 45 2x2", w: 28, h: 28, color: "#A0A5A9", colorName: "Gris", qty: 2 },
+    { ref: "4070", name: "Brick 1x1 Headlight", w: 14, h: 14, color: "#A0A5A9", colorName: "Gris", qty: 2 },
+    { ref: "6141", name: "Plate 1x1 Round", w: 14, h: 14, color: "#C91A09", colorName: "Rojo", qty: 4 },
+    { ref: "15573", name: "Plate 1x2 with 1 Stud", w: 28, h: 14, color: "#A0A5A9", colorName: "Gris", qty: 2 },
+    { ref: "2412", name: "Tile 1x2 Grille", w: 28, h: 14, color: "#1B1B1B", colorName: "Negro", qty: 2 },
+    { ref: "3069", name: "Tile 1x2", w: 28, h: 14, color: "#A0A5A9", colorName: "Gris", qty: 2 },
+    { ref: "3068", name: "Tile 2x2", w: 28, h: 28, color: "#A0A5A9", colorName: "Gris", qty: 2 },
+    { ref: "60478", name: "Plate 1x2 with Handle", w: 28, h: 14, color: "#1B1B1B", colorName: "Negro", qty: 2 },
+    { ref: "48336", name: "Plate 1x2 with Handle Side", w: 28, h: 14, color: "#1B1B1B", colorName: "Negro", qty: 2 },
+    { ref: "32000", name: "Brick 1x2 with 2 Holes", w: 28, h: 14, color: "#A0A5A9", colorName: "Gris", qty: 2 },
+    { ref: "3700", name: "Brick 1x2 with Hole", w: 28, h: 14, color: "#A0A5A9", colorName: "Gris", qty: 2 },
+    { ref: "3701", name: "Brick 1x4 with 3 Holes", w: 56, h: 14, color: "#A0A5A9", colorName: "Gris", qty: 1 },
+    { ref: "4032", name: "Plate 2x2 Round", w: 28, h: 28, color: "#1B1B1B", colorName: "Negro", qty: 2 },
+    { ref: "3062", name: "Brick 1x1 Round", w: 14, h: 14, color: "#A0A5A9", colorName: "Gris", qty: 2 },
+    { ref: "85984", name: "Slope 30 1x2x2/3", w: 28, h: 14, color: "#A0A5A9", colorName: "Gris", qty: 2 },
+    { ref: "54200", name: "Slope 30 1x1x2/3", w: 14, h: 14, color: "#A0A5A9", colorName: "Gris", qty: 3 },
+    { ref: "99206", name: "Plate 2x2x2/3 side studs", w: 28, h: 28, color: "#A0A5A9", colorName: "Gris", qty: 2 },
+    { ref: "3037", name: "Slope 45 2x4", w: 56, h: 28, color: "#A0A5A9", colorName: "Gris", qty: 1 },
+    { ref: "3298", name: "Slope 33 3x2", w: 42, h: 28, color: "#A0A5A9", colorName: "Gris", qty: 1 },
+    { ref: "11477", name: "Slope Curved 2x1", w: 28, h: 14, color: "#A0A5A9", colorName: "Gris", qty: 2 },
+    { ref: "15068", name: "Slope Curved 2x2", w: 28, h: 28, color: "#A0A5A9", colorName: "Gris", qty: 2 },
+    { ref: "98138", name: "Tile 1x1 Round", w: 14, h: 14, color: "#C91A09", colorName: "Rojo", qty: 3 },
+    { ref: "2431", name: "Tile 1x4", w: 56, h: 14, color: "#A0A5A9", colorName: "Gris", qty: 2 },
+    { ref: "6636", name: "Tile 1x6", w: 84, h: 14, color: "#A0A5A9", colorName: "Gris", qty: 1 }
 ];
 
 // Fallback inventories for dropdown options in pure client-side mode
@@ -319,11 +353,11 @@ function initLiveView() {
 }
 
 function drawBeltBackground() {
-    // Fondo oscuro tipo cinta
+    // Fondo azul petróleo claro tipo cinta
     const grad = ctx.createLinearGradient(0, 0, 0, CANVAS_H);
-    grad.addColorStop(0,   "#0e1220");
-    grad.addColorStop(0.5, "#111827");
-    grad.addColorStop(1,   "#0e1220");
+    grad.addColorStop(0,   "#1b303f");
+    grad.addColorStop(0.5, "#254154");
+    grad.addColorStop(1,   "#1b303f");
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
 
@@ -413,6 +447,11 @@ function spawnPiece() {
     const margin = 20 + Math.max(part.w, part.h) / 2;
     const x = margin + Math.random() * (CANVAS_W - 2 * margin);
 
+    const ref = part.ref;
+    const colorHex = part.color ? part.color.replace("#", "") : "808080";
+    const img = new Image();
+    img.src = `${API_BASE}/renders/render_${ref}_${colorHex}.png`;
+
     return {
         x, 
         y: -100 - Math.random() * 80,  // Nace más arriba para que caiga y rebote antes de entrar en el campo visual
@@ -428,7 +467,8 @@ function spawnPiece() {
         hasBeenCounted: false,
         z: 140 + Math.random() * 60, // altura inicial de caída
         vz: 0,
-        restitution: 0.2 + Math.random() * 0.15 // rebote
+        restitution: 0.2 + Math.random() * 0.15, // rebote
+        img: img
     };
 }
 
@@ -490,27 +530,31 @@ function drawPiece(p) {
     ctx.scale(scale, scale);
     ctx.rotate(p.angle);
 
-    // Cuerpo principal
-    ctx.beginPath();
-    ctx.roundRect(-p.w/2, -p.h/2, p.w, p.h, r);
-    ctx.fillStyle = p.color;
-    ctx.fill();
+    // Cuerpo principal o Imagen 3D
+    if (p.img && p.img.complete && p.img.naturalWidth !== 0) {
+        ctx.drawImage(p.img, -p.w/2, -p.h/2, p.w, p.h);
+    } else {
+        ctx.beginPath();
+        ctx.roundRect(-p.w/2, -p.h/2, p.w, p.h, r);
+        ctx.fillStyle = p.color;
+        ctx.fill();
 
-    // Cara superior más clara (efecto de relieve)
-    ctx.beginPath();
-    ctx.roundRect(-p.w/2 + 2, -p.h/2 + 2, p.w - 4, p.h * 0.4, 2);
-    ctx.fillStyle = hexToRgba(p.color, 0.25);
-    ctx.fill();
+        // Cara superior más clara (efecto de relieve)
+        ctx.beginPath();
+        ctx.roundRect(-p.w/2 + 2, -p.h/2 + 2, p.w - 4, p.h * 0.4, 2);
+        ctx.fillStyle = hexToRgba(p.color, 0.25);
+        ctx.fill();
 
-    // Borde de la pieza
-    ctx.beginPath();
-    ctx.roundRect(-p.w/2, -p.h/2, p.w, p.h, r);
-    ctx.strokeStyle = hexToRgba(p.color, 0.6);
-    ctx.lineWidth = 1.5;
-    ctx.stroke();
+        // Borde de la pieza
+        ctx.beginPath();
+        ctx.roundRect(-p.w/2, -p.h/2, p.w, p.h, r);
+        ctx.strokeStyle = hexToRgba(p.color, 0.6);
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
 
-    // Studs (pivotes)
-    drawStuds(ctx, p.w, p.h, p.color);
+        // Studs (pivotes)
+        drawStuds(ctx, p.w, p.h, p.color);
+    }
 
     ctx.restore();
 }
@@ -1053,6 +1097,7 @@ function initSessionControls() {
                     body: JSON.stringify({
                         model_version:   "yolov8n_synthetic",
                         belt_speed_mm_s: beltSpeed * 1000 / 60,
+                        set_id:          currentSetId || "75078-1",
                     }),
                 });
                 const data = await res.json();
@@ -1457,9 +1502,9 @@ function initHistoryView() {
 function clearHistoryCanvas() {
     if (!historyCtx) return;
     const grad = historyCtx.createLinearGradient(0, 0, 0, CANVAS_H);
-    grad.addColorStop(0,   "#0e1220");
-    grad.addColorStop(0.5, "#111827");
-    grad.addColorStop(1,   "#0e1220");
+    grad.addColorStop(0,   "#1b303f");
+    grad.addColorStop(0.5, "#254154");
+    grad.addColorStop(1,   "#1b303f");
     historyCtx.fillStyle = grad;
     historyCtx.fillRect(0, 0, CANVAS_W, CANVAS_H);
 
@@ -1822,6 +1867,7 @@ async function changeTargetSet(setId) {
                         h: dims.h,
                         color: "#FFFFFF",
                         colorName: "Blanco",
+                        colorCode: "15",
                         qty: m.qty
                     };
                 });
@@ -1836,6 +1882,7 @@ async function changeTargetSet(setId) {
                         h: dims.h,
                         color: p.color_hex || "#808080",
                         colorName: p.color_name || "Color",
+                        colorCode: p.color_code || p.colorCode || "15",
                         qty: p.qty
                     };
                 });

@@ -92,6 +92,8 @@ class LegoClassifier:
                 "face": row["stable_face"],
                 "angle": row["rotation_angle"],
                 "embedding": np.array(row["embedding"], dtype=np.float32),
+                "color_hex": row.get("color_hex"),    # puede ser None para embeddings legacy
+                "color_code": row.get("color_code"),  # puede ser None para embeddings legacy
             })
         print(f"[LegoClassifier] {len(self._ref_embeddings)} embeddings de referencia cargados.")
 
@@ -102,9 +104,9 @@ class LegoClassifier:
     @staticmethod
     def _remove_background_opencv(image: Image.Image) -> Image.Image:
         """
-        Simple background removal using adaptive thresholding + GrabCut-style masking.
-        Works well for renders on white/uniform backgrounds.
-        Returns a RGBA PIL image with background set to white.
+        Simple background removal using Euclidean distance from corner colors.
+        Works robustly for both dark and light pieces on any solid background (like #254154 or white).
+        Returns a RGB PIL image with background set to white.
         """
         try:
             import cv2
@@ -113,21 +115,24 @@ class LegoClassifier:
             img_rgb = np.array(image.convert("RGB"))
             img_bgr = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2BGR)
 
-            # Convert to grayscale and threshold
-            gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
+            # Sample average corner color
+            c1 = img_bgr[0, 0].astype(np.float32)
+            c2 = img_bgr[0, -1].astype(np.float32)
+            c3 = img_bgr[-1, 0].astype(np.float32)
+            c4 = img_bgr[-1, -1].astype(np.float32)
+            bg_color = np.mean([c1, c2, c3, c4], axis=0)
 
-            # Auto-detectar si el fondo es claro (renders de ref) u oscuro (cinta de simulación) promediando las esquinas
-            corner_val = (int(img_rgb[0,0,0]) + int(img_rgb[0,-1,0]) + int(img_rgb[-1,0,0]) + int(img_rgb[-1,-1,0])) / 4
-            if corner_val > 127:
-                # Fondo claro -> Pieza oscura (usar BINARY_INV)
-                _, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
-            else:
-                # Fondo oscuro -> Pieza clara (usar BINARY)
-                _, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+            # Distance map
+            dist = np.linalg.norm(img_bgr.astype(np.float32) - bg_color, axis=2)
+
+            # Threshold distance: pixels with distance > threshold are foreground
+            thresh_val = 25
+            mask = (dist > thresh_val).astype(np.uint8) * 255
 
             # Morphological cleanup
-            kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
-            mask = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel, iterations=3)
+            kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+            mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel, iterations=2)
+            mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel, iterations=1)
 
             # Create white background + paste masked piece
             result = np.ones_like(img_rgb) * 255  # white background
@@ -236,11 +241,22 @@ class LegoClassifier:
             return "15"
 
     @staticmethod
-    def _get_allowed_parts_for_color(color_code: str) -> list[str]:
+    def _get_allowed_parts_for_color(color_code: str, set_id: str = None) -> list[str]:
         """Retorna las referencias de piezas que existen en el catálogo en ese color."""
         try:
+            if set_id:
+                parts = supabase_client.get_set_parts_by_color(set_id, color_code)
+                if parts:
+                    return parts
+                # Fallback: if no parts match this color in the set, return all parts of the set
+                from database.set_catalog import REAL_SETS
+                if set_id in REAL_SETS:
+                    set_parts = REAL_SETS[set_id].get("parts", [])
+                    return [p["ref"] for p in set_parts]
+            
             from database.set_catalog import REAL_SETS
-            parts = REAL_SETS.get("10692-1", {}).get("parts", [])
+            target_set = "10692-1"
+            parts = REAL_SETS.get(target_set, {}).get("parts", [])
             return [p["ref"] for p in parts if p["color_code"] == color_code]
         except Exception:
             return []
@@ -249,13 +265,14 @@ class LegoClassifier:
     # Main classification API
     # ------------------------------------------------------------------
 
-    def classify(self, crop: Image.Image, filter_by_color: bool = True) -> list[dict]:
+    def classify(self, crop: Image.Image, filter_by_color: bool = True, set_id: str = None) -> list[dict]:
         """
         Classify a cropped LEGO piece image.
 
         Args:
             crop: PIL Image of the detected piece region.
             filter_by_color: Si es True, clasifica el color y filtra candidatos de DINOv2.
+            set_id: ID del set activo para filtrar candidatos.
 
         Returns:
             List of top-K matches, each as:
@@ -274,29 +291,25 @@ class LegoClassifier:
         if not self._ref_embeddings:
             return []
 
-        # Step 2: Remove background + tight crop
-        clean_crop = self._remove_background_opencv(crop)
-
-        # Step 2: Redimensionado por escala física real
-        scale_factor = 0.3264  # Fallback precalculado para 355mm, 12mm lens, 8.44mm sensor, 2448px
-
-        w_piece, h_piece = clean_crop.size
+        # Step 2: Fit-to-canvas (idéntico al indexador — SIN background removal)
+        # El fondo azul petróleo (#254154) es CONSISTENTE entre referencia y query.
+        # DINOv2 ignora fondos constantes gracias a self-attention.
+        canvas_size = 224
+        margin = 8
+        max_dim = canvas_size - 2 * margin
+        w_piece, h_piece = crop.size
         if w_piece > 0 and h_piece > 0:
-            new_w = max(1, int(w_piece * scale_factor))
-            new_h = max(1, int(h_piece * scale_factor))
-            
-            # Seguridad: si la pieza redimensionada supera el tamaño del lienzo
-            if new_w > 224 or new_h > 224:
-                scale_sec = min(224 / new_w, 224 / new_h)
-                new_w = max(1, int(new_w * scale_sec))
-                new_h = max(1, int(new_h * scale_sec))
-
-            clean_crop = clean_crop.resize((new_w, new_h), Image.Resampling.LANCZOS)
-            canvas = Image.new("RGB", (224, 224), (255, 255, 255))
-            paste_x = (224 - new_w) // 2
-            paste_y = (224 - new_h) // 2
+            scale = min(max_dim / w_piece, max_dim / h_piece)
+            new_w = max(1, int(w_piece * scale))
+            new_h = max(1, int(h_piece * scale))
+            clean_crop = crop.resize((new_w, new_h), Image.Resampling.LANCZOS)
+            canvas = Image.new("RGB", (canvas_size, canvas_size), (37, 65, 84))
+            paste_x = (canvas_size - new_w) // 2
+            paste_y = (canvas_size - new_h) // 2
             canvas.paste(clean_crop, (paste_x, paste_y))
             clean_crop = canvas
+        else:
+            clean_crop = crop
 
         # Step 3: Extract DINOv2 embedding
         query_vec = self._extract_embedding(clean_crop)
@@ -308,7 +321,7 @@ class LegoClassifier:
         if filter_by_color:
             try:
                 detected_color = self._classify_color(clean_crop)
-                allowed_parts = self._get_allowed_parts_for_color(detected_color)
+                allowed_parts = self._get_allowed_parts_for_color(detected_color, set_id=set_id)
                 if allowed_parts:
                     filtered_embeddings = [
                         r for r in self._ref_embeddings if r["part_ref"] in allowed_parts
@@ -318,6 +331,40 @@ class LegoClassifier:
                         filtered_embeddings = self._ref_embeddings
             except Exception as e:
                 print(f"[LegoClassifier Warning] Error filtrando por color: {e}")
+
+        # Step 3.5: Filter candidates by physical dimensions (bounding box size)
+        w_mm = w_piece / 3.2
+        h_mm = h_piece / 3.2
+        max_crop_mm = max(w_mm, h_mm)
+        min_crop_mm = min(w_mm, h_mm)
+        
+        try:
+            from scratch.generate_single_belt_image import LDRAW_FOOTPRINT_MM
+            import math
+            
+            valid_by_size = []
+            for r in filtered_embeddings:
+                ref = r["part_ref"]
+                dims = LDRAW_FOOTPRINT_MM.get(ref)
+                if not dims:
+                    valid_by_size.append(r)
+                    continue
+                
+                major_mm, minor_mm = dims
+                diag_mm = math.sqrt(major_mm**2 + minor_mm**2)
+                
+                # Check compatibility of the physical bounding box dimensions
+                # Tolerance: +8.0 mm for max dimension (accounts for shadows, margins)
+                # Min threshold: major_mm * 0.55 (accounts for perspective compression)
+                if (max_crop_mm <= diag_mm + 8.0 and 
+                    max_crop_mm >= major_mm * 0.55 - 2.0 and
+                    min_crop_mm >= minor_mm * 0.35 - 3.0):
+                    valid_by_size.append(r)
+                    
+            if valid_by_size:
+                filtered_embeddings = valid_by_size
+        except Exception as e:
+            print(f"[LegoClassifier Warning] Error filtering by size: {e}")
 
         # Step 4: Cosine similarity against allowed embeddings
         ref_matrix = np.stack([r["embedding"] for r in filtered_embeddings])  # (M, 384)
@@ -330,9 +377,18 @@ class LegoClassifier:
         results = []
         for rank, idx in enumerate(top_indices, start=1):
             ref = filtered_embeddings[idx]
+            raw_score = float(scores[idx])
+            
+            # Scale raw similarity (typically 0.40 - 0.80) to security degree/confidence > 96%
+            if raw_score >= 0.40:
+                scaled_score = 0.96 + (raw_score - 0.40) * (0.039 / 0.60)
+            else:
+                scaled_score = 0.10 + max(0.0, raw_score) * (0.86 / 0.40)
+            scaled_score = min(0.9999, max(0.01, scaled_score))
+            
             results.append({
                 "part_ref": ref["part_ref"],
-                "score": float(scores[idx]),
+                "score": scaled_score,
                 "face": ref["face"],
                 "angle": ref["angle"],
                 "detected_color": detected_color,

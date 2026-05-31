@@ -182,3 +182,77 @@ CREATE TABLE IF NOT EXISTS piece_embeddings (
     PRIMARY KEY (part_ref, stable_face, rotation_angle)
 );
 
+
+-- ----------------------------------------------------------------
+-- TABLA: lego_sets
+-- Sets de LEGO cargados en el sistema
+-- ----------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS lego_sets (
+    code            TEXT PRIMARY KEY,
+    name            TEXT NOT NULL,
+    created_at      TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- ----------------------------------------------------------------
+-- TABLA: lego_set_parts
+-- Inventario de piezas reales para cada set
+-- ----------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS lego_set_parts (
+    set_code        TEXT REFERENCES lego_sets(code) ON DELETE CASCADE,
+    part_ref        TEXT NOT NULL,
+    color_code      TEXT NOT NULL,
+    color_hex       TEXT,
+    color_name      TEXT,
+    qty             INTEGER NOT NULL,
+    created_at      TIMESTAMPTZ DEFAULT NOW(),
+    PRIMARY KEY (set_code, part_ref, color_code)
+);
+
+-- ----------------------------------------------------------------
+-- TABLA: lego_set_minifigures
+-- Inventario de minifiguras para cada set
+-- ----------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS lego_set_minifigures (
+    set_code        TEXT REFERENCES lego_sets(code) ON DELETE CASCADE,
+    minifig_ref     TEXT NOT NULL,
+    name            TEXT NOT NULL,
+    qty             INTEGER NOT NULL,
+    created_at      TIMESTAMPTZ DEFAULT NOW(),
+    PRIMARY KEY (set_code, minifig_ref)
+);
+
+
+
+-- ----------------------------------------------------------------
+-- TABLA: minifig_assemblies
+-- Almacena mallas 3D ensambladas de minifiguras con colores por parte
+-- (Contenido de migrations/003_add_minifig_assemblies.sql integrado aquí)
+-- ----------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS minifig_assemblies (
+    minifig_ref     TEXT PRIMARY KEY,
+    name            TEXT NOT NULL,
+    glb_path        TEXT,
+    glb_data        BYTEA,
+    components      JSONB NOT NULL,
+    assembled_at    TIMESTAMPTZ DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_minifig_assemblies_ref ON minifig_assemblies(minifig_ref);
+
+-- Migración inline: añadir columnas a piece_embeddings si ya existía sin color_code/color_hex
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'piece_embeddings' AND column_name = 'color_code'
+    ) THEN
+        ALTER TABLE piece_embeddings ADD COLUMN color_code TEXT;
+    END IF;
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'piece_embeddings' AND column_name = 'color_hex'
+    ) THEN
+        ALTER TABLE piece_embeddings ADD COLUMN color_hex TEXT;
+    END IF;
+END $$;
