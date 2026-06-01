@@ -31,6 +31,15 @@ data/test_dataset/
 data/temp_inference_run/
 data/tmp/
 
+# --- Renders sintéticos generados (se regeneran con scripts/) ---
+data/synthetic_renders/
+data/simulated_dinov2/
+
+# --- Archivos Excel temporales (lock files de Office) ---
+~$*.xlsx
+~$*.xls
+~$*.docx
+
 # --- Modelos entrenados y pesos ---
 *.pt
 *.pth
@@ -42,10 +51,8 @@ models/
 # --- Resultados de entrenamiento YOLO ---
 runs/
 
-# --- Archivos de imagen generados (crops, renders temporales, etc.) ---
-scratch/*.png
-scratch/*.jpg
-scratch/*.jpeg
+# --- Directorio scratch (exploración local, no para el repo) ---
+scratch/
 
 # --- Blender temporales ---
 *.blend1
@@ -67,6 +74,7 @@ docker-volumes/
 
 # --- macOS ---
 .DS_Store
+**/.DS_Store
 .AppleDouble
 .LSOverride
 Icon
