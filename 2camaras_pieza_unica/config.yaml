@@ -1,0 +1,444 @@
+scene:
+  units:
+    bu_per_mm: 0.1
+    ldraw_to_bu: 0.04
+    ldraw_threshold: 5.0
+  belt:
+    width_bu: 20.0
+    length_bu: 60.0
+    thickness_bu: 1.0
+    surface_z: 0.0
+    color_linear:
+    - 0.145
+    - 0.255
+    - 0.33
+    - 1.0
+    color_hex: '#254154'
+    color_rgb_255:
+    - 37
+    - 65
+    - 84
+    roughness: 0.5
+    friction: 0.95
+    restitution: 0.02
+  rails:
+    width_bu: 0.2
+    height_bu: 0.4
+    material_metallic: 0.9
+    material_roughness: 0.5
+    material_color:
+    - 0.55
+    - 0.55
+    - 0.55
+    - 1.0
+    left_enabled: true
+    right_enabled: true
+  lighting:
+    lab_lightbox:
+      main_dome:
+        type: AREA
+        position_bu:
+        - 0.0
+        - 0.0
+        - 12.0
+        size_x_bu: 35.0
+        size_y_bu: 35.0
+        energy_w: 2000.0
+        color_rgb:
+        - 1.0
+        - 1.0
+        - 1.0
+      wall_panels:
+        type: AREA
+        positions_bu:
+          N:
+          - 0.0
+          - 12.0
+          - 6.0
+          S:
+          - 0.0
+          - -12.0
+          - 6.0
+          E:
+          - 12.0
+          - 0.0
+          - 6.0
+          W:
+          - -12.0
+          - 0.0
+          - 6.0
+        target_bu:
+        - 0.0
+        - 0.0
+        - 0.0
+        size_x_bu: 20.0
+        size_y_bu: 12.0
+        energy_w: 600.0
+        color_rgb:
+        - 1.0
+        - 1.0
+        - 1.0
+      ground_fill:
+        type: AREA
+        position_bu:
+        - 0.0
+        - 0.0
+        - -0.5
+        size_x_bu: 30.0
+        size_y_bu: 30.0
+        energy_w: 200.0
+        color_rgb:
+        - 1.0
+        - 1.0
+        - 1.0
+    randomize_in_training: true
+    energy_var_pct: 0.03
+    color_temp_K_center: 4100.0
+    color_temp_K_range: 150.0
+    position_jitter_bu: 0.1
+    randomize_for_references: false
+  world:
+    color:
+    - 1.0
+    - 1.0
+    - 1.0
+    - 1.0
+    strength: 0.3
+  physics:
+    gravity_z: -9.81
+    frames: 100
+    piece_mass_kg: 0.008
+    piece_friction: 0.95
+    piece_restitution: 0.02
+    spawn_z: 8.0
+    spawn_jitter_xy: 1.5
+  floor:
+    enabled: true
+    size_x_bu: 60.0
+    size_y_bu: 60.0
+    z_bu: -2.0
+    color_linear:
+    - 0.0
+    - 0.0
+    - 0.0
+    - 1.0
+    color_hex: '#000000'
+    roughness: 1.0
+    purpose: 'Fondo negro para camara lateral: piezas resaltan en silueta'
+
+cameras:
+  common:
+    type: PERSP
+    focal_length_mm: 27.0
+    clip_start: 0.01
+    clip_end: 100.0
+    target:
+    - 0.0
+    - 0.0
+    - 0.0
+    track_axis: TRACK_NEGATIVE_Z
+    up_axis: UP_Y
+  cenital:
+    position:
+    - 0.0
+    - 0.0
+    - 15.0
+    pitch_deg: 90.0
+    scale_px_per_mm: 3.2
+    role: dinov2_visual_similarity + oriented_size_2d
+    dinov2_enabled: true
+  lateral:
+    position:
+    - 15.0
+    - 0.0
+    - 2.5
+    pitch_deg: 0.0
+    scale_px_per_mm: 3.2
+    role: height_profile_verification + dinov2_visual_similarity
+    dinov2_enabled: true
+
+render:
+  engine: BLENDER_EEVEE
+  resolution:
+    width: 640
+    height: 640
+  eevee:
+    taa_render_samples: 16
+  cycles:
+    samples_dataset: 4
+    samples_ref: 8
+    samples_final: 64
+  film_transparent: false
+  gpu_acceleration: METAL
+
+pieces:
+  selected_parts:
+  - '3004'
+  - '3001'
+  - '3020'
+  - '3022'
+  - '2877'
+  - '59900'
+  - '3003'
+  - '3005'
+  - '3010'
+  - '3023'
+  - '3024'
+  - '3710'
+  - '3665'
+  - '3039'
+  - '4070'
+  - '6141'
+  - '3069'
+  - '3068'
+  - '3700'
+  - '4032'
+  dimensions_mm:
+    '3004':
+    - 16.0
+    - 8.0
+    - 9.6
+    '3001':
+    - 32.0
+    - 16.0
+    - 9.6
+    '3020':
+    - 32.0
+    - 16.0
+    - 3.2
+    '3022':
+    - 16.0
+    - 16.0
+    - 3.2
+    '2877':
+    - 16.0
+    - 8.0
+    - 9.6
+    '59900':
+    - 8.0
+    - 8.0
+    - 9.6
+    '3003':
+    - 16.0
+    - 16.0
+    - 9.6
+    '3005':
+    - 8.0
+    - 8.0
+    - 9.6
+    '3010':
+    - 32.0
+    - 8.0
+    - 9.6
+    '3023':
+    - 16.0
+    - 8.0
+    - 3.2
+    '3024':
+    - 8.0
+    - 8.0
+    - 3.2
+    '3710':
+    - 32.0
+    - 8.0
+    - 3.2
+    '3665':
+    - 16.0
+    - 8.0
+    - 9.6
+    '3039':
+    - 16.0
+    - 16.0
+    - 9.6
+    '4070':
+    - 8.0
+    - 8.0
+    - 9.6
+    '6141':
+    - 8.0
+    - 8.0
+    - 3.2
+    '3069':
+    - 16.0
+    - 8.0
+    - 3.2
+    '3068':
+    - 16.0
+    - 16.0
+    - 3.2
+    '3700':
+    - 16.0
+    - 8.0
+    - 9.6
+    '4032':
+    - 16.0
+    - 16.0
+    - 3.2
+  heights_mm:
+    brick: 9.6
+    plate: 3.2
+    tile: 3.2
+  reference_colors_hex:
+  - A0A5A9
+  - 1B1B1B
+  - C91A09
+  - F2CD37
+  - DFD1A5
+  - 0A3C9F
+  test_color_hex: A0A5A9
+  bevel_modifier: true
+  origin_type: ORIGIN_GEOMETRY
+  origin_center: BOUNDS
+
+yolo:
+  dataset:
+    pieces_per_frame: 1
+    empty_frame_ratio: 0.05
+    train_val_split: 0.7
+    total_pieces_cenital: 5000
+    total_pieces_lateral: 3000
+    classes:
+      0: lego_piece
+  training:
+    model_base: yolo11n.pt
+    epochs: 15
+    batch_size: 16
+    image_size: 640
+    device: mps
+    amp: true
+    workers: 2
+    cache: true
+    patience: 15
+    delta_improvement: 0.001
+    augmentation:
+      hsv_h: 0.015
+      hsv_s: 0.7
+      hsv_v: 0.4
+      degrees: 360.0
+      flip_lr: 0.5
+      flip_ud: 0.5
+  weights:
+    cenital: models/yolo_cenital.pt
+    lateral: models/yolo_lateral.pt
+
+dinov2:
+  model:
+    name: dinov2_vits14
+    source: facebookresearch/dinov2
+    embedding_dim: 384
+    device: mps
+  preprocessing:
+    canvas_size: 224
+    canvas_margin_px: 8
+    canvas_bg_color:
+    - 37
+    - 65
+    - 84
+    transform:
+      resize: 256
+      center_crop: 224
+      normalize_mean:
+      - 0.485
+      - 0.456
+      - 0.406
+      normalize_std:
+      - 0.229
+      - 0.224
+      - 0.225
+  projection_head:
+    type: multimodal
+    input_dim: 386
+    hidden_dim: 512
+    output_dim: 128
+    activation: ReLU
+    normalization: LayerNorm
+    output_normalize: L2
+    weights_path: models/dino_multimodal_head.pt
+    unimodal_weights_path: models/dino_metric_head.pt
+  reference_generation:
+    script: scripts/generate_eevee_dinov2_refs.py
+    output_dir: data/dinov2_refs
+    cameras:
+    - cenital
+    - lateral
+    rotations_per_pose: 12
+    rotation_step_deg: 30
+  indexing:
+    script: scripts/reindex_dinov2_eevee.py
+    table: piece_embeddings
+    cameras_to_index:
+    - cenital
+    - lateral
+    cenital_cam_id: 1
+    lateral_cam_id: 2
+    batch_size: 128
+    clear_before_index: true
+    store_raw_embedding: true
+    store_projected_embedding: true
+
+stable_poses:
+  render_min_stability: 0.01
+  min_contact_dimension_mm: 4.0
+  cache_path: data/stable_poses_cache.json
+
+inference:
+  evaluation_script: scripts/run_evaluation.py
+  report_output: data/eval_report.json
+  calibration:
+    px_per_mm_cenital: 3.2
+    px_per_mm_lateral: 3.2
+    camera_dist_mm: 150.0
+  segmentation:
+    method: chromaticity
+    black_bg_threshold: 5
+    bg_corner_dark_thresh: 15
+    chromaticity_dist_thresh: 0.04
+    luminance_min_thresh: 30
+    morphology_kernel_size: 3
+    morphology_close_iterations: 2
+    morphology_open_iterations: 1
+    min_contour_area: 10
+  query_canvas:
+    size: 224
+    scale_factor: 0.325
+    bg_color:
+    - 0
+    - 0
+    - 0
+  size_scoring:
+    sigma_mm: 5.0
+  height_validation:
+    stud_offset_mm: 0.9
+    tolerance_mm: 2.2
+    penalty_factor: 0.01
+  camera_weights:
+    cenital: 0.7
+    lateral: 0.3
+
+database:
+  provider: supabase
+  embeddings_table: piece_embeddings
+
+sets:
+  all_set_ids:
+  - 75078-1
+  default_set_id: 75078-1
+
+logging:
+  enabled: true
+  dir: logs
+  level: INFO
+  max_file_size_mb: 50
+  max_files: 10
+  blender:
+    file: blender_{date}.log
+    level: INFO
+  dinov2:
+    file: dinov2_{date}.log
+    level: INFO
+  pipeline:
+    file: pipeline_{date}.log
+    level: DEBUG
+  yolo:
+    file: yolo_{date}.log
+    level: INFO
