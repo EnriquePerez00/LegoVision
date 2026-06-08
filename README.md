@@ -1,97 +1,85 @@
-# LegoVision 🧱
+# LegoVision
 
-Sistema de **visión artificial** para detectar y clasificar piezas LEGO sobre una cinta transportadora negra utilizando un modelo YOLO11 y embeddings DINOv2.
+Sistema de **vision artificial** para detectar y clasificar piezas LEGO sobre una cinta transportadora negra.
+Utiliza YOLO11 para deteccion y embeddings DINOv2 con K-NN consensus voting para clasificacion.
 
-## 🏗️ Arquitectura
+## Pipeline de 2 Fases
 
-```
-Dataset de Imágenes Reales (Imágenes capturadas + anotaciones YOLO)
-    ↓
-YOLO11 Model (.pt weights)
-    ↓
-FastAPI Inference Server (5 FPS / 200ms latencia)
-    ↓
-PyWebView GUI (dark mode, live view, estadísticas)
-    ↕
-Supabase Local (Docker :5434/:5437)
-```
+**Fase 1 - Deteccion (YOLO11n):** bounding boxes con clase generica (lego_piece / minifigure).
 
-## 📷 Setup de Hardware
+**Fase 2 - Clasificacion (DINOv2 + MLP + K-NN):** identifica la pieza exacta por similitud de embeddings.
 
-| Parámetro | Valor |
+## Hardware de Referencia
+
+| Parametro | Valor |
 |-----------|-------|
-| Cámara | Sony IMX264 (Global Shutter, 2/3") |
-| Resolución | 5MP (2448 × 2048 px) |
+| Camara | Sony IMX264 (Global Shutter) |
+| Resolucion | 5MP (2448 x 2048 px) |
 | Lente | 12mm C-mount |
 | Working Distance | 355 mm |
-| FOV | 250 mm (cinta 200mm + 25mm margen) |
-| Velocidad cinta | variable, máx. 5 m/min (83.3 mm/s) |
-| Latencia objetivo | < 200 ms (5 FPS) |
+| FOV | 250 mm (cinta 200mm) |
+| Velocidad cinta | max. 83.3 mm/s (5 m/min) |
+| Latencia objetivo | menor de 200 ms (5 FPS) |
 
-## 🚀 Quick Start
+## Quick Start
 
-### 1. Setup de entorno
-```bash
-cp .env.example .env
-bash scripts/setup_env.sh
-```
+### Configuracion inicial (una sola vez)
 
-### 2. Lanzar la aplicación (Base de Datos + API + GUI)
-Para arrancar todo el sistema de forma unificada (activación del entorno virtual, base de datos local, servidor API en background y la interfaz gráfica de usuario):
-```bash
-./run.sh
-```
-El script cerrará ordenadamente los procesos en segundo plano al salir de la aplicación gráfica.
+    cp .env.example .env
+    # Editar .env: configurar BLENDER_PATH
+    bash scripts/setup_env.sh
+    docker compose up -d
+    psql -h localhost -p 5434 -U postgres -d legvision -f database/schema.sql
+    python scripts/migrate_sets.py
 
-## 📁 Estructura del Proyecto
+### Arranque del sistema
 
-```
-LegoVision/
-├── scripts/          # Scripts de setup y utilidades
-├── data/
-│   ├── raw_dataset/  # Imágenes capturadas localmente
-│   └── processed_dataset/  # Train/Val/Test splits
-├── training/         # YOLO11 + Lightning AI + Indexación
-├── inference/        # FastAPI + detector + clasificador
-├── gui/              # PyWebView app
-├── database/         # Schema Supabase
-└── docs/             # Documentación técnica
-```
+    ./run.sh
 
-## 🧪 Tests Locales (macOS M4)
+El script levanta: entorno virtual, Docker/Supabase, API FastAPI (:8005) y GUI PyWebView.
+Al cerrar la GUI todos los procesos se detienen ordenadamente.
 
-```bash
-# Test inferencia M4 (MPS)
-python training/local_test.py --model runs/train/best.pt --device mps
-```
+## Estructura del Proyecto
 
-## ☁️ Training en Lightning AI (NVIDIA T4)
+    LegoVision/
+      inference/   API FastAPI, detector YOLO11, clasificador DINOv2 K-NN
+      gui/         Interfaz grafica PyWebView (SPA HTML/JS + Python bridge)
+      database/    Cliente PostgreSQL, schema SQL, catalogo de sets
+      training/    Entrenamiento YOLO11, indexacion DINOv2, evaluacion
+      scripts/     Scripts Blender para generacion de datos y validacion
+      data/        Datos generados (no versionados en git)
+      models/      Modelos entrenados (.pt)
+      docs/        Documentacion tecnica
 
-```bash
-lightning run model training/train_lightning.py \
-  --strategy ddp --devices 1 --accelerator gpu
-```
+## Documentacion
 
-## 🗄️ Base de Datos
+- **[Documentacion Tecnica Completa](docs/SYSTEM_DOCUMENTATION.md)** - Arquitectura, flujos, algoritmos, modelo de datos, API
+- [Hardware Setup](docs/hardware_setup.md) - Especificaciones Sony IMX264
+- [Latency Budget](docs/latency_budget.md) - Analisis de latencia
 
-- **Host**: `localhost:5434` (PostgreSQL)
-- **API REST**: `localhost:5437`
-- **DB**: `legvision`
-- Gestión: `docker compose up/down`
+## Stack Tecnologico
 
-## 📄 Documentación
-
-- [Arquitectura y Flujo de Trabajo](docs/architecture_and_workflow.md) — Diagrama de componentes, flujo de datos y variables de entorno
-- [Hardware Setup](docs/hardware_setup.md) — Specs Sony IMX264 + cálculos ópticos
-- [Latency Budget](docs/latency_budget.md) — Análisis cinta 5m/min
-
-## 🛠️ Stack Tecnológico
-
-| Componente | Tecnología |
+| Componente | Tecnologia |
 |-----------|------------|
-| Training | YOLO11 (Ultralytics) + Lightning AI |
-| Inference local | PyTorch MPS (Apple M4) |
-| API | FastAPI + Uvicorn + WebSocket |
+| Deteccion | YOLO11n (Ultralytics) |
+| Clasificacion | DINOv2 ViT-S/14 + MLP + K-NN |
+| API | FastAPI + Uvicorn |
 | GUI | PyWebView + HTML/CSS/JS |
-| DB | Supabase (PostgreSQL) en Docker |
-| Versioning | Git LFS (para modelos .pt) |
+| Base de datos | PostgreSQL 16 en Docker (Supabase local) |
+| Generacion datos | Blender 4.x con Python + LDraw |
+
+## Base de Datos
+
+- **PostgreSQL:** localhost:5434
+- **DB:** legvision
+- Gestion: docker compose up/down
+
+## Sets LEGO Soportados
+
+| Set ID | Nombre |
+|--------|--------|
+| 75078-1 | Imperial Troop Transport (Star Wars) |
+| 75280-1 | 501st Legion Clone Troopers |
+| 75218-1 | X-Wing Starfighter |
+| 75337-1 | AT-TE Walker |
+| 10692-1 | Creative Bricks |

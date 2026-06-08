@@ -1,3 +1,13 @@
+
+# =============================================================================
+# ALINEACION DE PREPROCESSING (scene_config.py -> pipeline unificado):
+#   - Fondo de cinta: DINO_BG_COLOR = (37, 65, 84) = #254154
+#   - Tamano canvas: DINO_CANVAS_SIZE = 224 px
+#   - Margen: DINO_CANVAS_MARGIN_PX = 8 px
+#   - Las referencias generadas por generate_physics_ref_multiangle.py usan
+#     exactamente la misma camara ortografica y escena que el dataset YOLO,
+#     garantizando alineacion total entre entrenamiento, indexado e inferencia.
+# =============================================================================
 """
 LegoVision — Re-indexer usando renders sintéticos coloreados.
 =============================================================
@@ -111,37 +121,85 @@ def extract_embedding(img: Image.Image, model, transform, device) -> np.ndarray:
     return vec.cpu().numpy().astype(np.float32)
 
 
-def index_directory(image_paths, regex, model, transform, device, face_id):
-    """Indexa una lista de imágenes con el regex dado. Retorna (indexed, failed)."""
+def index_directory(image_paths, regex, model, transform, device, face_id, batch_size=64):
+    """Indexa una lista de imágenes con el regex dado en lotes. Retorna (indexed, failed)."""
     indexed = 0
     failed = 0
-    for p in image_paths:
-        m = regex.match(os.path.basename(p))
-        if not m:
-            continue
-        part_ref = m.group(1)
-        color_hex = m.group(2).upper()
-        rotation_angle = int(m.group(3)) if regex.groups >= 3 else 0
-        color_code = COLOR_HEX_TO_CODE.get(color_hex, "0")
+    
+    for i in range(0, len(image_paths), batch_size):
+        batch_paths = image_paths[i:i+batch_size]
+        imgs_tensor = []
+        valid_metadata = []
+        
+        for p in batch_paths:
+            m = regex.match(os.path.basename(p))
+            if not m:
+                continue
+            part_ref = m.group(1)
+            color_hex = m.group(2).upper()
+            # Esquemas soportados:
+            #   3-group regex: (part, color, rot)               → pose=0
+            #   4-group regex: (part, color, pose|None, rot)    → pose explícito
+            if regex.groups >= 4:
+                pose_str = m.group(3)
+                pose_index = int(pose_str) if pose_str is not None else 0
+                rotation_angle = int(m.group(4))
+            elif regex.groups == 3:
+                pose_index = 0
+                rotation_angle = int(m.group(3))
+            else:
+                pose_index = 0
+                rotation_angle = 0
+            color_code = COLOR_HEX_TO_CODE.get(color_hex, "0")
 
+            try:
+                img = Image.open(p).convert("RGB")
+                img_proc = preprocess_render(img)
+                transformed = transform(img_proc)
+                imgs_tensor.append(transformed)
+                valid_metadata.append({
+                    "part_ref": part_ref,
+                    "color_hex": color_hex,
+                    "rotation_angle": rotation_angle,
+                    "pose_index": pose_index,
+                    "color_code": color_code,
+                    "filename": os.path.basename(p)
+                })
+            except Exception as e:
+                failed += 1
+                print(f"  ❌ Error cargando {os.path.basename(p)}: {e}")
+                
+        if not imgs_tensor:
+            continue
+            
         try:
-            img = Image.open(p).convert("RGB")
-            img_proc = preprocess_render(img)
-            embedding = extract_embedding(img_proc, model, transform, device)
-            supabase_client.save_piece_embedding(
-                part_ref=part_ref,
-                stable_face=face_id,
-                rotation_angle=rotation_angle,
-                embedding=embedding.tolist(),
-                color_code=color_code,
-                color_hex=color_hex,
-            )
-            indexed += 1
-            label = f"rot{rotation_angle:03d}" if rotation_angle else "iso"
-            print(f"  ✅ [{label}] {part_ref} ({color_hex})")
+            batch_tensor = torch.stack(imgs_tensor).to(device)
+            with torch.no_grad():
+                features = model(batch_tensor)
+                features = torch.nn.functional.normalize(features, dim=-1)
+                embeddings = features.cpu().numpy()
+                
+            batch_to_save = []
+            for idx, meta in enumerate(valid_metadata):
+                emb = embeddings[idx].tolist()
+                batch_to_save.append({
+                    "part_ref": meta["part_ref"],
+                    "stable_face": face_id,
+                    "rotation_angle": meta["rotation_angle"],
+                    "pose_index": meta.get("pose_index", 0),
+                    "embedding": emb,
+                    "color_code": meta["color_code"],
+                    "color_hex": meta["color_hex"],
+                })
+                indexed += 1
+                label = f"rot{meta['rotation_angle']:03d}" if meta['rotation_angle'] else "iso"
+                print(f"  ✅ [{label}] {meta['part_ref']} ({meta['color_hex']})")
+                
+            supabase_client.save_piece_embeddings_batch(batch_to_save)
         except Exception as e:
-            failed += 1
-            print(f"  ❌ Error en {os.path.basename(p)}: {e}")
+            failed += len(valid_metadata)
+            print(f"  ❌ Error extrayendo embeddings para lote: {e}")
+            
     return indexed, failed
 
 
@@ -183,7 +241,7 @@ def main():
     if os.path.isdir(multiangle_dir):
         pattern = os.path.join(multiangle_dir, "ref_*.png")
         paths = sorted(glob.glob(pattern))
-        regex = re.compile(r"ref_([a-zA-Z0-9_]+)_([A-F0-9]{6})_rot(\d+)\.png", re.IGNORECASE)
+        regex = re.compile(r"ref_([a-zA-Z0-9_]+)_([A-F0-9]{6})(?:_pose\d+)?_rot(\d+)\.png", re.IGNORECASE)
         print(f"\n[LegoVision Index] Indexando {len(paths)} renders multi-ángulo...")
         n, f = index_directory(paths, regex, model, transform, device, face_id=1)
         total_indexed += n

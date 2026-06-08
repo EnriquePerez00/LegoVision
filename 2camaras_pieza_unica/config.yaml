@@ -377,9 +377,17 @@ dinov2:
     store_projected_embedding: true
 
 stable_poses:
+  cache_path: data/stable_poses_cache.json
+  # TARPS - Tipping-Aware Random Pose Selection
+  # (ver docs/stable_pose_selection_rule.md)
+  # Umbral mínimo para considerar una pose como "estable" en la fase de
+  # selección previa a render YOLO. Si ninguna pose de la pieza llega al
+  # umbral, se aplica fallback determinista argmax(tipping_energy_ratio).
+  tarps_min_tipping: 0.04
+  # Campos legacy mantenidos por compatibilidad con scripts antiguos.
+  # NO se usan en la nueva regla de selección.
   render_min_stability: 0.01
   min_contact_dimension_mm: 4.0
-  cache_path: data/stable_poses_cache.json
 
 inference:
   evaluation_script: scripts/run_evaluation.py

@@ -21,6 +21,7 @@ DB_CONFIG = {
     "dbname":   os.getenv("SUPABASE_DB_NAME", "legvision"),
     "user":     os.getenv("SUPABASE_DB_USER", "postgres"),
     "password": os.getenv("SUPABASE_DB_PASSWORD", "legvision_pass_2024"),
+    "connect_timeout": 3,
 }
 
 
@@ -206,6 +207,17 @@ def update_training_progress(run_id: str, current_epoch: int, loss: float, val_l
                 WHERE id = %s
             """, (current_epoch, loss, val_loss, map50, log_text, run_id))
 
+def append_training_log(run_id: str, log_text: str):
+    """Añade texto a los logs de una corrida de entrenamiento sin alterar las métricas."""
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                UPDATE training_runs
+                SET logs = COALESCE(logs, '') || %s
+                WHERE id = %s
+            """, (log_text, run_id))
+
+
 def complete_training_run(run_id: str, status: str, log_text: str = None):
     """Marca la corrida de entrenamiento como completada o fallida."""
     with get_connection() as conn:
@@ -243,20 +255,61 @@ def save_piece_embedding(
     embedding: list[float],
     color_code: str = None,
     color_hex: str = None,
+    pose_index: int = None,
+    embedding_projected: list[float] = None,
 ):
     """Guarda o actualiza el embedding de características de una pieza de Lego."""
     with get_connection() as conn:
         with conn.cursor() as cur:
+            p_idx = pose_index if pose_index is not None else stable_face
             cur.execute("""
-                INSERT INTO piece_embeddings (part_ref, stable_face, rotation_angle, embedding, color_code, color_hex)
-                VALUES (%s, %s, %s, %s, %s, %s)
-                ON CONFLICT (part_ref, stable_face, rotation_angle)
+                INSERT INTO piece_embeddings (part_ref, stable_face, rotation_angle, embedding, color_code, color_hex, pose_index, embedding_projected)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (part_ref, stable_face, rotation_angle, color_hex)
                 DO UPDATE SET
                     embedding = EXCLUDED.embedding,
                     color_code = EXCLUDED.color_code,
                     color_hex = EXCLUDED.color_hex,
+                    pose_index = EXCLUDED.pose_index,
+                    embedding_projected = EXCLUDED.embedding_projected,
                     created_at = NOW()
-            """, (part_ref, stable_face, rotation_angle, embedding, color_code, color_hex))
+            """, (part_ref, stable_face, rotation_angle, embedding, color_code, color_hex, p_idx, embedding_projected))
+
+def save_piece_embeddings_batch(embeddings: list[dict]):
+    """Guarda múltiples embeddings de piezas en un solo INSERT con ON CONFLICT para mayor velocidad."""
+    if not embeddings:
+        return
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            values = []
+            for emb in embeddings:
+                part_ref = emb["part_ref"]
+                stable_face = emb["stable_face"]
+                rotation_angle = emb["rotation_angle"]
+                embedding_data = emb["embedding"]
+                color_code = emb.get("color_code")
+                color_hex = emb.get("color_hex")
+                pose_index = emb.get("pose_index")
+                if pose_index is None:
+                    pose_index = stable_face
+                embedding_projected = emb.get("embedding_projected")
+                values.append((
+                    part_ref, stable_face, rotation_angle, embedding_data,
+                    color_code, color_hex, pose_index, embedding_projected
+                ))
+            
+            psycopg2.extras.execute_values(cur, """
+                INSERT INTO piece_embeddings (part_ref, stable_face, rotation_angle, embedding, color_code, color_hex, pose_index, embedding_projected)
+                VALUES %s
+                ON CONFLICT (part_ref, stable_face, rotation_angle, color_hex)
+                DO UPDATE SET
+                    embedding = EXCLUDED.embedding,
+                    color_code = EXCLUDED.color_code,
+                    color_hex = EXCLUDED.color_hex,
+                    pose_index = EXCLUDED.pose_index,
+                    embedding_projected = EXCLUDED.embedding_projected,
+                    created_at = NOW()
+            """, values)
 
 def clear_embeddings():
     """Borra TODOS los embeddings de la tabla (usar con cuidado)."""
@@ -265,13 +318,37 @@ def clear_embeddings():
             cur.execute("DELETE FROM piece_embeddings")
             print("[LegoVision DB] Todos los embeddings borrados.")
 
+def clear_piece_embeddings(part_ref: str):
+    """Borra todos los embeddings de una pieza específica."""
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM piece_embeddings WHERE part_ref = %s", (part_ref,))
+            print(f"[LegoVision DB] Embeddings borrados para la pieza: {part_ref}")
+
+def get_stable_poses(part_ref: str) -> list[dict]:
+    """Obtiene las posiciones estables de una pieza desde la BD."""
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT pose_index, contact_normal, face_class, contact_area, 
+                           orientation_quat, orientation_euler, stability_ratio
+                    FROM stable_poses
+                    WHERE part_ref = %s AND is_stable = TRUE
+                    ORDER BY pose_index
+                """, (part_ref,))
+                return [dict(r) for r in cur.fetchall()]
+    except Exception as e:
+        print(f"[LegoVision DB Error] get_stable_poses: {e}")
+        return []
+
 def get_all_embeddings() -> list[dict]:
     """Obtiene todos los embeddings almacenados para comparación por similaridad."""
     try:
         with get_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute("""
-                    SELECT part_ref, stable_face, rotation_angle, embedding, color_code, color_hex
+                    SELECT part_ref, stable_face, rotation_angle, embedding, embedding_projected, color_code, color_hex, pose_index
                     FROM piece_embeddings
                 """)
                 return [dict(r) for r in cur.fetchall()]

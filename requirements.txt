@@ -27,3 +27,4 @@ pywebview>=5.0.0
 # Utilidades
 pydantic>=2.7.0
 loguru>=0.7.2
+shapely>=2.0

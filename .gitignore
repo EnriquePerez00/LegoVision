@@ -1,4 +1,6 @@
-# === LegoVision .gitignore ===
+# ============================================================
+#  LegoVision .gitignore
+# ============================================================
 
 # --- Python ---
 __pycache__/
@@ -20,59 +22,24 @@ build/
 .ipynb_checkpoints/
 *.ipynb
 
-# --- Datos pesados: LDraw library (~500MB) ---
-# Descargar con: scripts/download_ldraw.sh
-data/ldraw/
-
-# --- Datasets generados (imágenes renderizadas por Blender) ---
-data/raw_dataset/
-data/processed_dataset/
-data/test_dataset/
-data/temp_inference_run/
-data/tmp/
-
-# --- Renders sintéticos generados (se regeneran con scripts/) ---
-data/synthetic_renders/
-data/simulated_dinov2/
-
-# --- Archivos Excel temporales (lock files de Office) ---
-~$*.xlsx
-~$*.xls
-~$*.docx
-
-# --- Modelos entrenados y pesos ---
-*.pt
-*.pth
-*.onnx
-*.engine
-*.weights
-models/
-
-# --- Resultados de entrenamiento YOLO ---
-runs/
-
-# --- Directorio scratch (exploración local, no para el repo) ---
-scratch/
-
-# --- Blender temporales ---
-*.blend1
-*.blend2
-/tmp/
-
-# --- Supabase / Docker ---
-.supabase/
-docker-volumes/
-
-# --- Secrets y variables de entorno ---
+# --- Secrets / env ---
 .env
-.env.local
-.env.production
-.env.staging
+.env.*
+!.env.example
 *.key
 *.pem
 *.secret
+password*.docx
+password*.xlsx
+password*.txt
 
-# --- macOS ---
+# --- IDE / SO ---
+.vscode/
+.idea/
+*.swp
+*.swo
+*.orig
+.clinerules
 .DS_Store
 **/.DS_Store
 .AppleDouble
@@ -81,14 +48,125 @@ Icon
 ._*
 .Spotlight-V100
 .Trashes
-
-# --- IDE ---
-.vscode/
-.idea/
-*.swp
-*.swo
-*.orig
+Thumbs.db
 
 # --- Logs ---
 *.log
 logs/
+**/logs/
+pipeline_execution*.log
+
+# --- Backups y temporales ---
+*.bak
+*.backup
+*.tmp
+*.temp
+*.~
+.gitignore.backup
+**/config.yaml.bak
+*.json.bak
+*.yaml.bak
+
+# --- Carpetas de exploración / backups locales ---
+scratch/
+**/scratch/
+backups/
+**/backups/
+
+# --- Datos pesados regenerables (LDraw, datasets, renders) ---
+data/ldraw/
+data/raw_dataset/
+data/processed_dataset/
+data/test_dataset/
+data/temp_inference_run/
+data/tmp/
+data/synthetic_renders/
+data/simulated_dinov2/
+data/dino_scatter/
+data/pipeline_ref/
+data/pipeline_val/
+data/ref_multiangle/
+data/test_e2e/
+data/iter*/
+
+# --- YOLO datasets (regenerables ~3 GB) ---
+**/yolo_cenital/
+**/yolo_cenital_full/
+**/yolo_cenital_split/
+**/yolo_cenital_processed/
+**/yolo_cenital_v*_legacy/
+**/yolo_frontal/
+**/yolo_frontal_full/
+**/yolo_frontal_split/
+**/yolo_frontal_processed/
+**/yolo_lateral/
+**/yolo_lateral_full/
+**/yolo_lateral_split/
+**/yolo_lateral_processed/
+**/yolo_lateral_v*_legacy/
+**/yolo_lateral0/
+**/dual_test_*/
+
+# --- DINOv2 referencias (regenerables ~500 MB) ---
+**/dinov2_refs/
+**/dinov2_refs_full/
+**/simulated_dinov2/
+
+# --- Validation / inference renders ---
+**/validation_renders*/
+**/test_dual/
+**/random_position/
+
+# --- Reports generados ---
+**/reports/
+**/data/reports/
+**/_bricklink_cache/
+**/3dposes/
+
+# --- Caches ---
+*_cache.json
+stable_poses_cache.json
+eval_report.json
+eval_results*.json
+selected_parts.json
+
+# --- Embeddings ---
+*.npy
+*.npz
+*.pkl
+*.pickle
+
+# --- Excel / Office temporales ---
+~$*.xlsx
+~$*.xls
+~$*.docx
+*.xlsx
+*.xls
+
+# --- Modelos: bloquear todo .pt; usar `git add -f` para los validados ---
+*.pt
+**/yolo_runs/
+**/runs/
+training/runs/
+runs/
+yolo11n.pt
+yolo11m.pt
+yolov8n.pt
+yolov8m.pt
+yolov8l.pt
+mobile_sam.pt
+**/mobile_sam.pt
+
+# --- Blender ---
+*.blend1
+*.blend2
+/tmp/
+
+# --- Supabase / Docker ---
+.supabase/
+docker-volumes/
+
+# --- DBs locales ---
+*.db
+*.sqlite
+*.sqlite3
