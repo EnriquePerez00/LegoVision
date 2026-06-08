@@ -3,56 +3,384 @@ import random
 # Base de datos local estática de sets de LEGO para demostración y consistencia
 REAL_SETS = {
     "75078-1": {
-        "name": 'Imperial Troop Transport (Star Wars Rebels)',
+    "name": "Imperial Troop Transport",
+    "minifigures": [
+        {
+            "ref": "sw0578",
+            "name": "Imperial Stormtrooper - Printed Legs, Dark Azure Helmet Vents",
+            "qty": 2
+        },
+        {
+            "ref": "sw0617",
+            "name": "Imperial Stormtrooper - Printed Legs, Dark Azure Helmet Vents, Frown",
+            "qty": 2
+        }
+    ],
+    "parts": [
+        {
+            "ref": "2877",
+            "color_code": "11",
+            "color_hex": "#202020",
+            "color_name": "Black",
+            "qty": 1,
+            "name": "Brick, Modified 1 x 2 with Grille / Fluted Profile"
+        },
+        {
+            "ref": "30414",
+            "color_code": "11",
+            "color_hex": "#202020",
+            "color_name": "Black",
+            "qty": 1,
+            "name": "Brick, Modified 1 x 4 with Studs on Side"
+        },
+        {
+            "ref": "15391",
+            "color_code": "11",
+            "color_hex": "#202020",
+            "color_name": "Black",
+            "qty": 4,
+            "name": "Minifigure, Weapon Gun, Mini Blaster / Shooter"
+        },
+        {
+            "ref": "32054",
+            "color_code": "11",
+            "color_hex": "#202020",
+            "color_name": "Black",
+            "qty": 2,
+            "name": "Technic, Pin 3L with Friction Ridges and Stop Bush"
+        },
+        {
+            "ref": "61780",
+            "color_code": "85",
+            "color_hex": "#6B6D67",
+            "color_name": "Dark Bluish Gray",
+            "qty": 1,
+            "name": "Container, Box 2 x 2 x 2 - Top Opening"
+        },
+        {
+            "ref": "3022",
+            "color_code": "85",
+            "color_hex": "#6B6D67",
+            "color_name": "Dark Bluish Gray",
+            "qty": 2,
+            "name": "Plate 2 x 2"
+        },
+        {
+            "ref": "3795",
+            "color_code": "85",
+            "color_hex": "#6B6D67",
+            "color_name": "Dark Bluish Gray",
+            "qty": 2,
+            "name": "Plate 2 x 6"
+        },
+        {
+            "ref": "3832",
+            "color_code": "85",
+            "color_hex": "#6B6D67",
+            "color_name": "Dark Bluish Gray",
+            "qty": 1,
+            "name": "Plate 2 x 10"
+        },
+        {
+            "ref": "2654",
+            "color_code": "85",
+            "color_hex": "#6B6D67",
+            "color_name": "Dark Bluish Gray",
+            "qty": 6,
+            "name": "Plate, Round 2 x 2 with Rounded Bottom (Boat Stud)"
+        },
+        {
+            "ref": "15392",
+            "color_code": "85",
+            "color_hex": "#6B6D67",
+            "color_name": "Dark Bluish Gray",
+            "qty": 4,
+            "name": "Projectile Launcher Part, Trigger for Gun, Mini Blaster / Shooter"
+        },
+        {
+            "ref": "2412b",
+            "color_code": "85",
+            "color_hex": "#6B6D67",
+            "color_name": "Dark Bluish Gray",
+            "qty": 7,
+            "name": "Tile, Modified 1 x 2 Grille with Bottom Groove"
+        },
+        {
+            "ref": "3004",
+            "color_code": "86",
+            "color_hex": "#A2A1A3",
+            "color_name": "Light Bluish Gray",
+            "qty": 6,
+            "name": "Brick 1 x 2"
+        },
+        {
+            "ref": "2653",
+            "color_code": "86",
+            "color_hex": "#A2A1A3",
+            "color_name": "Light Bluish Gray",
+            "qty": 3,
+            "name": "Brick, Modified 1 x 4 with Channel"
+        },
+        {
+            "ref": "87620",
+            "color_code": "86",
+            "color_hex": "#A2A1A3",
+            "color_name": "Light Bluish Gray",
+            "qty": 4,
+            "name": "Brick, Modified Facet 2 x 2"
+        },
+        {
+            "ref": "2335",
+            "color_code": "86",
+            "color_hex": "#A2A1A3",
+            "color_name": "Light Bluish Gray",
+            "qty": 4,
+            "name": "Flag 2 x 2 Square with Flat Edge"
+        },
+        {
+            "ref": "87552",
+            "color_code": "86",
+            "color_hex": "#A2A1A3",
+            "color_name": "Light Bluish Gray",
+            "qty": 5,
+            "name": "Panel 1 x 2 x 2 with Side Supports - Hollow Studs"
+        },
+        {
+            "ref": "3710",
+            "color_code": "86",
+            "color_hex": "#A2A1A3",
+            "color_name": "Light Bluish Gray",
+            "qty": 3,
+            "name": "Plate 1 x 4"
+        },
+        {
+            "ref": "3795",
+            "color_code": "86",
+            "color_hex": "#A2A1A3",
+            "color_name": "Light Bluish Gray",
+            "qty": 2,
+            "name": "Plate 2 x 6"
+        },
+        {
+            "ref": "2445",
+            "color_code": "86",
+            "color_hex": "#A2A1A3",
+            "color_name": "Light Bluish Gray",
+            "qty": 1,
+            "name": "Plate 2 x 12"
+        },
+        {
+            "ref": "3839b",
+            "color_code": "86",
+            "color_hex": "#A2A1A3",
+            "color_name": "Light Bluish Gray",
+            "qty": 2,
+            "name": "Plate, Modified 1 x 2 with Bar Handles - Flat Ends, Low Attachment"
+        },
+        {
+            "ref": "85984",
+            "color_code": "86",
+            "color_hex": "#A2A1A3",
+            "color_name": "Light Bluish Gray",
+            "qty": 1,
+            "name": "Slope 30 1 x 2 x 2/3"
+        },
+        {
+            "ref": "3040",
+            "color_code": "86",
+            "color_hex": "#A2A1A3",
+            "color_name": "Light Bluish Gray",
+            "qty": 2,
+            "name": "Slope 45 2 x 1"
+        },
+        {
+            "ref": "60481",
+            "color_code": "86",
+            "color_hex": "#A2A1A3",
+            "color_name": "Light Bluish Gray",
+            "qty": 6,
+            "name": "Slope 65 2 x 1 x 2"
+        },
+        {
+            "ref": "2449",
+            "color_code": "86",
+            "color_hex": "#A2A1A3",
+            "color_name": "Light Bluish Gray",
+            "qty": 2,
+            "name": "Slope, Inverted 75 2 x 1 x 3"
+        },
+        {
+            "ref": "6541",
+            "color_code": "86",
+            "color_hex": "#A2A1A3",
+            "color_name": "Light Bluish Gray",
+            "qty": 2,
+            "name": "Technic, Brick 1 x 1 with Hole"
+        },
+        {
+            "ref": "32000",
+            "color_code": "86",
+            "color_hex": "#A2A1A3",
+            "color_name": "Light Bluish Gray",
+            "qty": 2,
+            "name": "Technic, Brick 1 x 2 with Holes"
+        },
+        {
+            "ref": "61184",
+            "color_code": "86",
+            "color_hex": "#A2A1A3",
+            "color_name": "Light Bluish Gray",
+            "qty": 2,
+            "name": "Technic, Pin 1/2 with 2L Bar Extension (Flick Missile)"
+        },
+        {
+            "ref": "3068",
+            "color_code": "86",
+            "color_hex": "#A2A1A3",
+            "color_name": "Light Bluish Gray",
+            "qty": 1,
+            "name": "Tile 2 x 2"
+        },
+        {
+            "ref": "14769",
+            "color_code": "86",
+            "color_hex": "#A2A1A3",
+            "color_name": "Light Bluish Gray",
+            "qty": 1,
+            "name": "Tile, Round 2 x 2 with Bottom Stud Holder"
+        },
+        {
+            "ref": "3679",
+            "color_code": "86",
+            "color_hex": "#A2A1A3",
+            "color_name": "Light Bluish Gray",
+            "qty": 1,
+            "name": "Turntable 2 x 2 Plate, Top"
+        },
+        {
+            "ref": "51739",
+            "color_code": "86",
+            "color_hex": "#A2A1A3",
+            "color_name": "Light Bluish Gray",
+            "qty": 4,
+            "name": "Wedge, Plate 2 x 4"
+        },
+        {
+            "ref": "2419",
+            "color_code": "86",
+            "color_hex": "#A2A1A3",
+            "color_name": "Light Bluish Gray",
+            "qty": 2,
+            "name": "Wedge, Plate 3 x 6 Cut Corners"
+        },
+        {
+            "ref": "3024",
+            "color_code": "5",
+            "color_hex": "#C30025",
+            "color_name": "Red",
+            "qty": 2,
+            "name": "Plate 1 x 1"
+        },
+        {
+            "ref": "3023",
+            "color_code": "5",
+            "color_hex": "#C30025",
+            "color_name": "Red",
+            "qty": 6,
+            "name": "Plate 1 x 2"
+        },
+        {
+            "ref": "3023",
+            "color_code": "13",
+            "color_hex": "#625E51",
+            "color_name": "Trans-Brown",
+            "qty": 6,
+            "name": "Plate 1 x 2"
+        },
+        {
+            "ref": "4589b",
+            "color_code": "17",
+            "color_hex": "#C91A09",
+            "color_name": "Trans-Red",
+            "qty": 2,
+            "name": "Cone 1 x 1 with Top Groove"
+        },
+        {
+            "ref": "4073",
+            "color_code": "17",
+            "color_hex": "#C91A09",
+            "color_name": "Trans-Red",
+            "qty": 12,
+            "name": "Plate, Round 1 x 1"
+        },
+        {
+            "ref": "3022",
+            "color_code": "1",
+            "color_hex": "#F9F9F9",
+            "color_name": "White",
+            "qty": 2,
+            "name": "Plate 2 x 2"
+        },
+        {
+            "ref": "3020",
+            "color_code": "1",
+            "color_hex": "#F9F9F9",
+            "color_name": "White",
+            "qty": 1,
+            "name": "Plate 2 x 4"
+        },
+        {
+            "ref": "2540",
+            "color_code": "1",
+            "color_hex": "#F9F9F9",
+            "color_name": "White",
+            "qty": 4,
+            "name": "Plate, Modified 1 x 2 with Bar Handle on Side - Free Ends"
+        },
+        {
+            "ref": "4073",
+            "color_code": "1",
+            "color_hex": "#F9F9F9",
+            "color_name": "White",
+            "qty": 2,
+            "name": "Plate, Round 1 x 1"
+        },
+        {
+            "ref": "3680",
+            "color_code": "1",
+            "color_hex": "#F9F9F9",
+            "color_name": "White",
+            "qty": 1,
+            "name": "Turntable 2 x 2 Plate, Base"
+        }
+    ]
+},
+    "911943-1": {
+        "name": "Luke Skywalker foil pack #1 (Star Wars)",
         "minifigures": [
             {
-                "ref": "sw0614",
-                "name": "Stormtrooper (Rebels) with Azure Vents",
-                "qty": 4
+                "ref": "sw0778",
+                "name": "Luke Skywalker (Tatooine, White Legs, Stern / Smile Face Print)",
+                "qty": 1
             }
         ],
         "parts": [
-            { "ref": "3004", "color_code": "85", "color_hex": "#A0A5A9", "color_name": "Light Bluish Gray", "qty": 8 },
-            { "ref": "3001", "color_code": "85", "color_hex": "#A0A5A9", "color_name": "Light Bluish Gray", "qty": 2 },
-            { "ref": "3020", "color_code": "85", "color_hex": "#A0A5A9", "color_name": "Light Bluish Gray", "qty": 4 },
-            { "ref": "3022", "color_code": "85", "color_hex": "#A0A5A9", "color_name": "Light Bluish Gray", "qty": 14 },
-            { "ref": "2877", "color_code": "0", "color_hex": "#1B1B1B", "color_name": "Black", "qty": 4 },
-            { "ref": "59900", "color_code": "36", "color_hex": "#C91A09", "color_name": "Trans-Red", "qty": 4 },
-            { "ref": "3003", "color_code": "85", "color_hex": "#A0A5A9", "color_name": "Light Bluish Gray", "qty": 2 },
-            { "ref": "3002", "color_code": "85", "color_hex": "#A0A5A9", "color_name": "Light Bluish Gray", "qty": 2 },
-            { "ref": "3005", "color_code": "85", "color_hex": "#A0A5A9", "color_name": "Light Bluish Gray", "qty": 4 },
-            { "ref": "3010", "color_code": "85", "color_hex": "#A0A5A9", "color_name": "Light Bluish Gray", "qty": 2 },
-            { "ref": "3021", "color_code": "85", "color_hex": "#A0A5A9", "color_name": "Light Bluish Gray", "qty": 2 },
-            { "ref": "3023", "color_code": "0", "color_hex": "#1B1B1B", "color_name": "Black", "qty": 10 },
-            { "ref": "3024", "color_code": "0", "color_hex": "#1B1B1B", "color_name": "Black", "qty": 6 },
-            { "ref": "2420", "color_code": "85", "color_hex": "#A0A5A9", "color_name": "Light Bluish Gray", "qty": 2 },
-            { "ref": "3710", "color_code": "85", "color_hex": "#A0A5A9", "color_name": "Light Bluish Gray", "qty": 3 },
-            { "ref": "3622", "color_code": "85", "color_hex": "#A0A5A9", "color_name": "Light Bluish Gray", "qty": 2 },
-            { "ref": "3665", "color_code": "0", "color_hex": "#1B1B1B", "color_name": "Black", "qty": 2 },
-            { "ref": "3039", "color_code": "85", "color_hex": "#A0A5A9", "color_name": "Light Bluish Gray", "qty": 2 },
-            { "ref": "4070", "color_code": "85", "color_hex": "#A0A5A9", "color_name": "Light Bluish Gray", "qty": 2 },
-            { "ref": "6141", "color_code": "4", "color_hex": "#C91A09", "color_name": "Red", "qty": 4 },
-            { "ref": "15573", "color_code": "85", "color_hex": "#A0A5A9", "color_name": "Light Bluish Gray", "qty": 2 },
-            { "ref": "2412", "color_code": "0", "color_hex": "#1B1B1B", "color_name": "Black", "qty": 2 },
-            { "ref": "3069", "color_code": "85", "color_hex": "#A0A5A9", "color_name": "Light Bluish Gray", "qty": 2 },
-            { "ref": "3068", "color_code": "85", "color_hex": "#A0A5A9", "color_name": "Light Bluish Gray", "qty": 2 },
-            { "ref": "60478", "color_code": "0", "color_hex": "#1B1B1B", "color_name": "Black", "qty": 2 },
-            { "ref": "48336", "color_code": "0", "color_hex": "#1B1B1B", "color_name": "Black", "qty": 2 },
-            { "ref": "32000", "color_code": "85", "color_hex": "#A0A5A9", "color_name": "Light Bluish Gray", "qty": 2 },
-            { "ref": "3700", "color_code": "85", "color_hex": "#A0A5A9", "color_name": "Light Bluish Gray", "qty": 2 },
-            { "ref": "3701", "color_code": "85", "color_hex": "#A0A5A9", "color_name": "Light Bluish Gray", "qty": 1 },
-            { "ref": "4032", "color_code": "0", "color_hex": "#1B1B1B", "color_name": "Black", "qty": 2 },
-            { "ref": "3062", "color_code": "85", "color_hex": "#A0A5A9", "color_name": "Light Bluish Gray", "qty": 2 },
-            { "ref": "85984", "color_code": "85", "color_hex": "#A0A5A9", "color_name": "Light Bluish Gray", "qty": 2 },
-            { "ref": "54200", "color_code": "85", "color_hex": "#A0A5A9", "color_name": "Light Bluish Gray", "qty": 3 },
-            { "ref": "99206", "color_code": "85", "color_hex": "#A0A5A9", "color_name": "Light Bluish Gray", "qty": 2 },
-            { "ref": "3037", "color_code": "85", "color_hex": "#A0A5A9", "color_name": "Light Bluish Gray", "qty": 1 },
-            { "ref": "3298", "color_code": "85", "color_hex": "#A0A5A9", "color_name": "Light Bluish Gray", "qty": 1 },
-            { "ref": "11477", "color_code": "85", "color_hex": "#A0A5A9", "color_name": "Light Bluish Gray", "qty": 2 },
-            { "ref": "15068", "color_code": "85", "color_hex": "#A0A5A9", "color_name": "Light Bluish Gray", "qty": 2 },
-            { "ref": "98138", "color_code": "4", "color_hex": "#C91A09", "color_name": "Red", "qty": 3 },
-            { "ref": "2431", "color_code": "85", "color_hex": "#A0A5A9", "color_name": "Light Bluish Gray", "qty": 2 },
-            { "ref": "6636", "color_code": "85", "color_hex": "#A0A5A9", "color_name": "Light Bluish Gray", "qty": 1 }
+            {
+                "ref": "64567",
+                "color_code": "67",
+                "color_hex": "#899395",
+                "color_name": "Flat Silver",
+                "qty": 1,
+                "name": "Minifigure, Weapon Lightsaber Hilt Straight"
+            },
+            {
+                "ref": "30374",
+                "color_code": "15",
+                "color_hex": "#AEE9EF",
+                "color_name": "Trans-Light Blue",
+                "qty": 1,
+                "name": "Bar 4L (Lightsaber Blade / Wand)"
+            }
         ]
     },
     "75280-1": {

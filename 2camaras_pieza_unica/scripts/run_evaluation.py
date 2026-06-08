@@ -15,7 +15,7 @@ import os, sys, json, math
 import time as _time
 import numpy as np
 from PIL import Image
-from ultralytics import YOLO
+from ultralytics import YOLO, SAM
 
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 legovic_root = os.path.dirname(project_root)
@@ -154,9 +154,42 @@ def get_nominal_heights(ref: str) -> list:
     return [H + 0.9, H, W, L]
 
 
-def segment_crop(crop_img: Image.Image) -> np.ndarray:
+sam_model = None
+
+def get_sam_model():
+    global sam_model
+    if sam_model is None:
+        sam_model = SAM("mobile_sam.pt")
+    return sam_model
+
+
+def segment_crop_sam(img_full: Image.Image, bbox_norm: list) -> np.ndarray:
+    try:
+        model = get_sam_model()
+        w, h = img_full.size
+        x1 = max(0, int(bbox_norm[0] * w))
+        y1 = max(0, int(bbox_norm[1] * h))
+        x2 = min(w, int(bbox_norm[2] * w))
+        y2 = min(h, int(bbox_norm[3] * h))
+        bbox_px = [x1, y1, x2, y2]
+        
+        img_np = np.array(img_full)
+        results = model(img_np, bboxes=[bbox_px], verbose=False)
+        if results and results[0].masks is not None:
+            full_mask = results[0].masks.data[0].cpu().numpy().astype(np.uint8) * 255
+            crop_mask = full_mask[y1:y2, x1:x2]
+            return crop_mask
+    except Exception:
+        pass
+    # Fallback to simple color distance
     try:
         import cv2
+        w, h = img_full.size
+        x1 = max(0, int(bbox_norm[0] * w))
+        y1 = max(0, int(bbox_norm[1] * h))
+        x2 = min(w, int(bbox_norm[2] * w))
+        y2 = min(h, int(bbox_norm[3] * h))
+        crop_img = img_full.crop((x1, y1, x2, y2))
         img_np = np.array(crop_img.convert("RGB"))
         bg_color = np.array([37.0, 65.0, 84.0], dtype=np.float32)
         dist = np.linalg.norm(img_np.astype(np.float32) - bg_color, axis=2)
@@ -166,35 +199,90 @@ def segment_crop(crop_img: Image.Image) -> np.ndarray:
         mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel, iterations=1)
         return mask
     except Exception:
-        return np.ones((crop_img.height, crop_img.width), dtype=np.uint8) * 255
+        h_crop = max(1, int(bbox_norm[3] * 640) - int(bbox_norm[1] * 640))
+        w_crop = max(1, int(bbox_norm[2] * 640) - int(bbox_norm[0] * 640))
+        return np.ones((h_crop, w_crop), dtype=np.uint8) * 255
 
 
-def measure_real_surface_mm2(crop_img: Image.Image) -> float:
-    try:
-        mask = segment_crop(crop_img)
-        num_pixels = np.sum(mask > 0)
-        return num_pixels / (PX_PER_MM_CENITAL ** 2)
-    except Exception:
-        return (crop_img.width / PX_PER_MM_CENITAL) * (crop_img.height / PX_PER_MM_CENITAL)
-
-
-def measure_lateral_height_mm(crop_img: Image.Image) -> float:
+def estimate_color_predominant_sam(crop_img: Image.Image, mask: np.ndarray) -> np.ndarray:
     try:
         import cv2
-        mask = segment_crop(crop_img)
+        img_rgb = np.array(crop_img.convert("RGB"))
+        mask_fg = mask > 0
+        if not np.any(mask_fg):
+            mask_fg = np.ones((img_rgb.shape[0], img_rgb.shape[1]), dtype=bool)
+
+        img_hsv = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2HSV)
+        s_channel = img_hsv[mask_fg, 1]
+        v_channel = img_hsv[mask_fg, 2]
+
+        valid_mask = (v_channel >= 40) & (v_channel <= 235) & (s_channel >= 20)
+        if np.sum(valid_mask) > 10:
+            avg_rgb = img_rgb[mask_fg][valid_mask].mean(axis=0)
+        else:
+            avg_rgb = img_rgb[mask_fg].mean(axis=0)
+        return avg_rgb
+    except Exception:
+        return np.array([160.0, 165.0, 169.0])
+
+
+def estimate_surface_area_sam_corrected(mask_cen: np.ndarray, bbox_norm: list, rest_h: float = 9.6) -> float:
+    """Calcula el área en mm² corrigiendo por perspectiva.
+    
+    NOTA (Mejoras A y B): rest_h puede recibir la altura de la pose. Para evitar
+    la sobrecorrección por perspectiva en piezas con plano inclinado (slopes)
+    donde la altura varía, se prefiere pasar la "altura efectiva" (altura media)
+    de la pose en lugar de la altura máxima (lateral_height).
+    """
+    try:
+        num_pixels = np.sum(mask_cen > 0)
+        cx = (bbox_norm[0] + bbox_norm[2]) / 2.0
+        cy = (bbox_norm[1] + bbox_norm[3]) / 2.0
+        
+        cx_px = cx * 640.0
+        cy_px = cy * 640.0
+        
+        dx_mm = (cx_px - 320.0) / 3.2
+        dy_mm = (320.0 - cy_px) / 3.2
+        r_mm = math.sqrt(dx_mm**2 + dy_mm**2)
+        
+        # Angle theta
+        theta = math.atan(r_mm / 150.0)
+        
+        # Pixel-to-mm ratio taking into account distance/angle to camera
+        d_cam = math.sqrt(r_mm**2 + (150.0 - rest_h)**2)
+        px_per_mm = 480.0 / d_cam
+        
+        area_raw_mm2 = num_pixels / (px_per_mm ** 2)
+        
+        # Correct for visible side faces due to perspective angle theta
+        w_bbox_mm = (bbox_norm[2] - bbox_norm[0]) * 640.0 / px_per_mm
+        h_bbox_mm = (bbox_norm[3] - bbox_norm[1]) * 640.0 / px_per_mm
+        perimeter_half = (w_bbox_mm + h_bbox_mm) / 2.0
+        
+        side_width_projected = (r_mm * rest_h) / (150.0 - rest_h)
+        added_side_area_mm2 = perimeter_half * side_width_projected * 0.5
+        
+        area_corrected = area_raw_mm2 - added_side_area_mm2
+        return max(0.1, area_corrected)
+    except Exception:
+        return np.sum(mask_cen > 0) / (3.2 ** 2)
+
+
+def measure_lateral_height_mm_sam(mask: np.ndarray) -> float:
+    try:
         ys, _ = np.where(mask > 0)
         if len(ys) > 0:
             height_px = max(ys) - min(ys)
             return height_px / PX_PER_MM_LATERAL
     except Exception:
         pass
-    return crop_img.height / PX_PER_MM_LATERAL
+    return mask.shape[0] / PX_PER_MM_LATERAL
 
 
-def get_oriented_dims_mm(crop_img: Image.Image) -> tuple:
+def get_oriented_dims_mm_sam(mask: np.ndarray) -> tuple:
     try:
         import cv2
-        mask = segment_crop(crop_img)
         contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         valid_contours = [c for c in contours if cv2.contourArea(c) > 10]
         if valid_contours:
@@ -204,7 +292,7 @@ def get_oriented_dims_mm(crop_img: Image.Image) -> tuple:
             return max(w_px, h_px) / PX_PER_MM_CENITAL, min(w_px, h_px) / PX_PER_MM_CENITAL
     except Exception:
         pass
-    return crop_img.width / PX_PER_MM_CENITAL, crop_img.height / PX_PER_MM_CENITAL
+    return mask.shape[1] / PX_PER_MM_CENITAL, mask.shape[0] / PX_PER_MM_CENITAL
 
 
 def size_score(max_query, min_query, ref, clf, cam_name="cenital"):
@@ -232,7 +320,7 @@ def size_score(max_query, min_query, ref, clf, cam_name="cenital"):
         return math.exp(-(dist_size**2) / (2 * (5.0**2)))
 
 
-def classify_camera(crop_img, clf, valid_part_refs, cam_name="cenital"):
+def classify_camera(crop_img, clf, valid_part_refs, max_query, min_query, cam_name="cenital"):
     if not clf._ref_embeddings:
         return {}
 
@@ -249,7 +337,6 @@ def classify_camera(crop_img, clf, valid_part_refs, cam_name="cenital"):
     else:
         clean_crop = crop_img
 
-    max_query, min_query = get_oriented_dims_mm(crop_img)
     cam_id = 1 if cam_name == "cenital" else 2
 
     filtered = [
@@ -390,17 +477,15 @@ def main():
             min(liw, int(lx2 * liw)), min(lih, int(ly2 * lih))
         ))
 
-        # ── ESTIMACIÓN DUAL DE COLOR ──
-        # Cenital: Estimación 1 (recorte completo) y Estimación 2 (segmentado)
-        cen_est1_rgb = estimate_color_predominant(crop_cen, use_segmentation=False)
-        cen_est2_rgb = estimate_color_predominant(crop_cen, use_segmentation=True)
-        cen_est1_catalog = find_closest_catalog_color(cen_est1_rgb)
-        cen_est2_catalog = find_closest_catalog_color(cen_est2_rgb)
+        # Segmentación SAM
+        mask_cen = segment_crop_sam(img_cen_full, [cx1, cy1, cx2, cy2])
+        mask_lat = segment_crop_sam(img_lat_full, [lx1, ly1, lx2, ly2])
 
-        # Lateral: Estimación 1 (recorte completo) y Estimación 2 (segmentado)
-        lat_est1_rgb = estimate_color_predominant(crop_lat, use_segmentation=False)
-        lat_est2_rgb = estimate_color_predominant(crop_lat, use_segmentation=True)
-        lat_est1_catalog = find_closest_catalog_color(lat_est1_rgb)
+        # ── ESTIMACIÓN DE COLOR DENTRO DEL CONTORNO SAM ──
+        cen_est2_rgb = estimate_color_predominant_sam(crop_cen, mask_cen)
+        cen_est2_catalog = find_closest_catalog_color(cen_est2_rgb)
+        
+        lat_est2_rgb = estimate_color_predominant_sam(crop_lat, mask_lat)
         lat_est2_catalog = find_closest_catalog_color(lat_est2_rgb)
 
         # Color de decisión para Phase 1: segmentación cenital
@@ -408,15 +493,11 @@ def main():
 
         # Log de estimaciones de color
         log.info(
-            f"  [Color] Cenital: est1=[{cen_est1_rgb[0]:.0f},{cen_est1_rgb[1]:.0f},{cen_est1_rgb[2]:.0f}]"
-            f"->{cen_est1_catalog['color_name']} | "
-            f"est2_seg=[{cen_est2_rgb[0]:.0f},{cen_est2_rgb[1]:.0f},{cen_est2_rgb[2]:.0f}]"
+            f"  [Color] Cenital: est2_seg=[{cen_est2_rgb[0]:.0f},{cen_est2_rgb[1]:.0f},{cen_est2_rgb[2]:.0f}]"
             f"->{cen_est2_catalog['color_name']} (decisión: {color_code_cen})"
         )
         log.info(
-            f"  [Color] Lateral: est1=[{lat_est1_rgb[0]:.0f},{lat_est1_rgb[1]:.0f},{lat_est1_rgb[2]:.0f}]"
-            f"->{lat_est1_catalog['color_name']} | "
-            f"est2_seg=[{lat_est2_rgb[0]:.0f},{lat_est2_rgb[1]:.0f},{lat_est2_rgb[2]:.0f}]"
+            f"  [Color] Lateral: est2_seg=[{lat_est2_rgb[0]:.0f},{lat_est2_rgb[1]:.0f},{lat_est2_rgb[2]:.0f}]"
             f"->{lat_est2_catalog['color_name']}"
         )
 
@@ -429,7 +510,6 @@ def main():
             valid_by_color = [p["ref"] for p in parts_in_set]
 
         # Phase 2: Surface gating (cenital, +/-20% using real mask area)
-        obs_surface_real = measure_real_surface_mm2(crop_cen)
         valid_by_surface = []
         for ref in valid_by_color:
             dims = get_part_dimensions(ref)
@@ -446,15 +526,18 @@ def main():
                 elif ref in ["2412", "2877"]:
                     filling_factor = 0.92
 
-                nom_apparent = nom_area * filling_factor * ((150.0 / (150.0 - rest_h)) ** 2)
-                if 0.80 * nom_apparent <= obs_surface_real <= 1.20 * nom_apparent:
+                obs_surface_real = estimate_surface_area_sam_corrected(mask_cen, [cx1, cy1, cx2, cy2], rest_h)
+                nom_target = nom_area * filling_factor
+                if sample_idx < 3 and ref == ref_gt:
+                    log.info(f"    [DEBUG] Ref={ref}: mask_pixels={np.sum(mask_cen > 0)} | obs_surface_real={obs_surface_real:.2f} | nom_target={nom_target:.2f} | raw_mm2={np.sum(mask_cen > 0)/(3.2**2):.2f}")
+                if 0.80 * nom_target <= obs_surface_real <= 1.20 * nom_target:
                     valid_by_surface.append(ref)
                     break
         if not valid_by_surface:
             valid_by_surface = valid_by_color
 
         # Phase 3: Height gating (lateral, +/-15%)
-        measured_height = measure_lateral_height_mm(crop_lat)
+        measured_height = measure_lateral_height_mm_sam(mask_lat)
         valid_by_height = []
         for ref in valid_by_surface:
             nominals = get_nominal_heights(ref)
@@ -466,8 +549,11 @@ def main():
             valid_by_height = valid_by_surface
 
         # Phase 4: DINOv2 fusion (cenital 70% + lateral 30%)
-        scores_cenital = classify_camera(crop_cen, clf, valid_by_height, cam_name="cenital")
-        scores_lateral = classify_camera(crop_lat, clf, valid_by_height, cam_name="lateral")
+        max_query_cen, min_query_cen = get_oriented_dims_mm_sam(mask_cen)
+        max_query_lat, min_query_lat = get_oriented_dims_mm_sam(mask_lat)
+
+        scores_cenital = classify_camera(crop_cen, clf, valid_by_height, max_query_cen, min_query_cen, cam_name="cenital")
+        scores_lateral = classify_camera(crop_lat, clf, valid_by_height, max_query_lat, min_query_lat, cam_name="lateral")
 
         final_scores = {}
         for ref in valid_by_height:
@@ -511,9 +597,7 @@ def main():
             "consensus_score": round(consensus_score, 4),
             "is_correct": is_correct,
             "color_decision": color_code_cen,
-            "color_cenital_est1": cen_est1_catalog["color_name"],
             "color_cenital_est2_seg": cen_est2_catalog["color_name"],
-            "color_lateral_est1": lat_est1_catalog["color_name"],
             "color_lateral_est2_seg": lat_est2_catalog["color_name"],
             "yolo_conf_cenital": round(cen_yolo_conf, 3),
             "yolo_conf_lateral": round(lat_yolo_conf, 3),

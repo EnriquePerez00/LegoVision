@@ -1,0 +1,62 @@
+{
+  "set_id": "75078-1",
+  "n_dirs": 8,
+  "results": [
+    {
+      "part_ref": "4589b",
+      "n_poses": 2,
+      "stable_poses": [
+        {
+          "pose_index": 0,
+          "contact_normal": [
+            0.0,
+            -0.9999999999,
+            -0.0
+          ],
+          "face_class": "Top",
+          "contact_area": 108.96000000000001,
+          "orientation_quat": [
+            1.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "orientation_euler": [
+            0.0,
+            -0.0,
+            0.0
+          ],
+          "stability_ratio": 0.0,
+          "is_stable": false,
+          "passes": 0,
+          "total": 8
+        },
+        {
+          "pose_index": 1,
+          "contact_normal": [
+            -0.0,
+            0.9999999999,
+            0.0
+          ],
+          "face_class": "Bottom",
+          "contact_area": 197.23999999999995,
+          "orientation_quat": [
+            0.2711358368396759,
+            -0.2634173333644867,
+            0.6739831566810608,
+            0.6346994638442993
+          ],
+          "orientation_euler": [
+            -1.504549503326416,
+            2.3663861751556396,
+            0.015258146449923515
+          ],
+          "stability_ratio": 1.0,
+          "is_stable": true,
+          "passes": 8,
+          "total": 8
+        }
+      ]
+    }
+  ]
+}

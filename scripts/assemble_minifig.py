@@ -63,6 +63,21 @@ MINIFIG_DATABASE = {
             {"part_key": "head",       "part_file": "3626c.dat", "ldraw_color": "78", "color_hex": "#F5C5A3", "color_name": "Flesh",  "label": "Cabeza"},
             {"part_key": "helmet",     "part_file": "30408.dat", "ldraw_color": "15", "color_hex": "#FFFFFF", "color_name": "White",  "label": "Casco X-Wing"},
         ]
+    },
+    "sw0778": {
+        "name": "Luke Skywalker (Tatooine, White Legs)",
+        "components": [
+            {"part_key": "torso",      "part_file": "973.dat",   "ldraw_color": "15", "color_hex": "#FFFFFF", "color_name": "White",  "label": "Torso"},
+            {"part_key": "hips",       "part_file": "3815.dat",  "ldraw_color": "15", "color_hex": "#FFFFFF", "color_name": "White",  "label": "Caderas"},
+            {"part_key": "left_leg",   "part_file": "3816.dat",  "ldraw_color": "15", "color_hex": "#FFFFFF", "color_name": "White",  "label": "Pierna Izq"},
+            {"part_key": "right_leg",  "part_file": "3817.dat",  "ldraw_color": "15", "color_hex": "#FFFFFF", "color_name": "White",  "label": "Pierna Der"},
+            {"part_key": "left_arm",   "part_file": "3819.dat",  "ldraw_color": "78", "color_hex": "#F5C5A3", "color_name": "Flesh",  "label": "Brazo Izq"},
+            {"part_key": "right_arm",  "part_file": "3818.dat",  "ldraw_color": "78", "color_hex": "#F5C5A3", "color_name": "Flesh",  "label": "Brazo Der"},
+            {"part_key": "left_hand",  "part_file": "3820.dat",  "ldraw_color": "78", "color_hex": "#F5C5A3", "color_name": "Flesh",  "label": "Mano Izq"},
+            {"part_key": "right_hand", "part_file": "3820.dat",  "ldraw_color": "78", "color_hex": "#F5C5A3", "color_name": "Flesh",  "label": "Mano Der"},
+            {"part_key": "head",       "part_file": "3626c.dat", "ldraw_color": "78", "color_hex": "#F5C5A3", "color_name": "Flesh",  "label": "Cabeza"},
+            {"part_key": "hair",       "part_file": "92081.dat", "ldraw_color": "3",  "color_hex": "#F2CD37", "color_name": "Yellow", "label": "Pelo"},
+        ]
     }
 }
 
@@ -73,6 +88,7 @@ STANDING_TEMPLATE = [
     ("torso",       0,      -72,  0,  "1 0 0 0 1 0 0 0 1"),
     ("head",        0,     -100,  0,  "1 0 0 0 1 0 0 0 1"),
     ("helmet",      0,     -100,  0,  "1 0 0 0 1 0 0 0 1"),
+    ("hair",        0,     -100,  0,  "1 0 0 0 1 0 0 0 1"),
     ("right_arm",  -15.552, -63,  0,  "0.9855 -0.1699 0 0.1699 0.9855 0 0 0 1"),
     ("left_arm",    15.552, -63,  0,  "0.9855 0.1699 0 -0.1699 0.9855 0 0 0 1"),
     ("right_hand", -23.552, -46, -10, "0.942 0.335 0.0072 -0.2404 0.6906 -0.6821 -0.2336 0.6409 0.7312"),
@@ -81,7 +97,7 @@ STANDING_TEMPLATE = [
 
 
 def get_minifigs_from_test_sets():
-    test_sets = ["75078-1", "75280-1", "75218-1", "75337-1"]
+    test_sets = ["75078-1", "75280-1", "75218-1", "75337-1", "911943-1"]
     result = []
     seen_refs = set()
     try:

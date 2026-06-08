@@ -1,5 +1,7 @@
 path: /Users/I764690/Code_personal/LegoVision/data/processed_dataset
 train: train/images
 val: val/images
+nc: 2
 names:
   0: lego_piece
+  1: minifigure

@@ -31,9 +31,265 @@ PX_PER_MM_CENITAL = cfg.inference.calibration.px_per_mm_cenital
 PX_PER_MM_LATERAL = cfg.inference.calibration.px_per_mm_lateral
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# UTILIDADES
-# ═══════════════════════════════════════════════════════════════════════════════
+from ultralytics import SAM
+
+sam_model = None
+
+def get_sam_model():
+    global sam_model
+    if sam_model is None:
+        sam_model = SAM("mobile_sam.pt")
+    return sam_model
+
+def segment_crop_sam(img_full: Image.Image, bbox_norm: list) -> np.ndarray:
+    try:
+        model = get_sam_model()
+        w, h = img_full.size
+        x1 = max(0, int(bbox_norm[0] * w))
+        y1 = max(0, int(bbox_norm[1] * h))
+        x2 = min(w, int(bbox_norm[2] * w))
+        y2 = min(h, int(bbox_norm[3] * h))
+        bbox_px = [x1, y1, x2, y2]
+        
+        img_np = np.array(img_full)
+        results = model(img_np, bboxes=[bbox_px], verbose=False)
+        if results and results[0].masks is not None:
+            full_mask = results[0].masks.data[0].cpu().numpy().astype(np.uint8) * 255
+            crop_mask = full_mask[y1:y2, x1:x2]
+            return crop_mask
+    except Exception:
+        pass
+    # Fallback to simple color distance
+    try:
+        w, h = img_full.size
+        x1 = max(0, int(bbox_norm[0] * w))
+        y1 = max(0, int(bbox_norm[1] * h))
+        x2 = min(w, int(bbox_norm[2] * w))
+        y2 = min(h, int(bbox_norm[3] * h))
+        crop_img = img_full.crop((x1, y1, x2, y2))
+        img_np = np.array(crop_img.convert("RGB"))
+        bg_color = np.array([37.0, 65.0, 84.0], dtype=np.float32)
+        dist = np.linalg.norm(img_np.astype(np.float32) - bg_color, axis=2)
+        mask = (dist > 18.0).astype(np.uint8) * 255
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel, iterations=2)
+        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel, iterations=1)
+        return mask
+    except Exception:
+        h_crop = max(1, int(bbox_norm[3] * 640) - int(bbox_norm[1] * 640))
+        w_crop = max(1, int(bbox_norm[2] * 640) - int(bbox_norm[0] * 640))
+        return np.ones((h_crop, w_crop), dtype=np.uint8) * 255
+
+def get_sam_segmented_crop(crop_img: Image.Image, mask: np.ndarray) -> Image.Image:
+    try:
+        img_np = np.array(crop_img.convert("RGB"))
+        segmented_np = np.zeros_like(img_np)
+        mask_fg = mask > 0
+        segmented_np[mask_fg] = img_np[mask_fg]
+        return Image.fromarray(segmented_np)
+    except Exception:
+        return crop_img
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Constantes geométricas LEGO usadas para descontar studs en cenital
+# (radio típico stud LEGO ≈ 2.4 mm; altura stud ≈ 1.7-1.8 mm pero el offset
+# añadido por la geometría completa de la cara superior con studs sobre una
+# pieza es ~0.9 mm para piezas brick/plate cuando se mira lateralmente).
+# ─────────────────────────────────────────────────────────────────────────────
+STUD_RADIUS_MM = 2.4
+STUD_AREA_MM2 = math.pi * (STUD_RADIUS_MM ** 2)
+STUD_HEIGHT_MM = 0.9
+
+# Geometría de cámara (BU → mm). bu_per_mm = 0.1 ⇒ 1 BU = 10 mm.
+CAM_CENITAL_HEIGHT_MM = 150.0  # cámara cenital en (0, 0, 15 BU) = 150 mm
+CAM_LATERAL_X_MM = 150.0       # cámara lateral en (15, 0, 2.5) BU = (150, 0, 25) mm
+CAM_LATERAL_Z_MM = 25.0
+CAM_FOCAL_PX = 480.0           # f * width / sensor = 27 mm * 640 / 36 mm
+
+
+def estimate_studs_count(part_ref: str) -> int:
+    """Estima el número de studs en la cara superior de una pieza brick/plate.
+
+    Se usa para descontar el área efectiva de studs cuando la pose tiene
+    studs hacia arriba (cara `Bottom` apoyada en la cinta).
+    Los valores se aproximan a partir del nombre de la pieza (1×n, 2×n, …)
+    y de un mapeo manual para piezas comunes del set 75078-1.
+    """
+    studs_map = {
+        # bricks 1x?
+        "3005": 1, "3004": 2, "3622": 3, "3010": 4, "3009": 6, "3008": 8,
+        # bricks 2x?
+        "3003": 4, "3002": 6, "3001": 8, "2456": 12, "3007": 16,
+        # plates 1x?
+        "3024": 1, "3023": 2, "3623": 3, "3710": 4, "3666": 6, "3460": 8,
+        # plates 2x?
+        "3022": 4, "3021": 6, "3020": 8, "3795": 12, "3034": 16,
+        # plates espesor 1×… que aparecen en este set
+        "3069": 2,   # plate 1x2 lisa (tile sin studs!) — caso especial,
+                     # ver más abajo en el código que lo trata como 0 studs.
+        "3068": 4,   # tile 2x2 (sin studs)
+        "63864": 4,  # tile 1x3
+        "3070b": 1,  # tile 1x1
+        # cilíndricos / round
+        "4032": 4, "4073": 1, "6141": 1, "98138": 1, "59900": 1,
+        # otros
+        "3700": 2,   # technic brick 1x2 (con stud)
+        "4070": 1,   # brick 1x1 with headlight
+        "2877": 2,   # brick 1x2 with grille (sin studs en cara grille)
+        "3037": 16,  # slope 4x6
+        "3038": 24,  # slope 2x6 (grande)
+    }
+    if part_ref in studs_map:
+        return studs_map[part_ref]
+    # Heurística por dimensiones (sin información explícita)
+    fp = FALLBACK_FOOTPRINT_MM.get(part_ref, (8.0, 8.0))
+    n_long = max(1, int(round(max(fp) / 8.0)))
+    n_short = max(1, int(round(min(fp) / 8.0)))
+    return n_long * n_short
+
+
+# Piezas del catálogo conocidas como "tile" (sin studs en su cara superior)
+# o piezas tipo grille/textured: la silueta cenital ya incluye su cara
+# superior plana; no hay studs que descontar en cenital.
+TILES_NO_STUDS = {"3069", "3068", "63864", "3070b", "2877", "3023"}
+
+
+def detect_studs_top_from_pose(pose_info: dict, part_ref: str) -> tuple:
+    """Determina si los studs apuntan hacia arriba en esta pose.
+
+    Devuelve (has_studs_top, n_studs, reason). Usa preferentemente:
+      1) `face_class` del cache: "Bottom" → la base apoya, studs arriba.
+                                  "Top"    → cara superior apoya, studs abajo.
+                                  "Side"   → studs apuntan al lado.
+      2) Si la pieza es de tipo `tile` (sin studs en cara superior) se devuelve
+         siempre n_studs=0 independientemente de la pose.
+    """
+    face = (pose_info or {}).get("face_class", "")
+    n_studs = estimate_studs_count(part_ref)
+    if part_ref in TILES_NO_STUDS:
+        return (False, 0, f"tile sin studs (face={face})")
+    if face == "Bottom":
+        return (True, n_studs, f"face={face} → base apoyada, studs ↑")
+    if face == "Top":
+        return (False, 0, f"face={face} → studs ↓ (no visibles cenital)")
+    return (False, 0, f"face={face} → studs laterales")
+
+
+def filter_shadows_in_mask(crop_img: Image.Image, mask: np.ndarray,
+                            v_min: int = 45, s_min: int = 25) -> np.ndarray:
+    """Refina la máscara descartando píxeles con luminosidad/saturación
+    bajas (típicas de sombra proyectada sobre la cinta o el suelo).
+    """
+    try:
+        if mask is None or mask.size == 0:
+            return mask
+        rgb = np.array(crop_img.convert("RGB"))
+        if rgb.shape[:2] != mask.shape[:2]:
+            rgb = cv2.resize(rgb, (mask.shape[1], mask.shape[0]),
+                              interpolation=cv2.INTER_LINEAR)
+        hsv = cv2.cvtColor(rgb, cv2.COLOR_RGB2HSV)
+        v = hsv[:, :, 2]
+        s = hsv[:, :, 1]
+        # Sombra típica = baja V y baja S → eliminar.
+        keep = (v >= v_min) | (s >= s_min)
+        refined = mask.copy()
+        refined[~keep] = 0
+        # Limpieza morfológica final
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+        refined = cv2.morphologyEx(refined, cv2.MORPH_OPEN, kernel, iterations=1)
+        refined = cv2.morphologyEx(refined, cv2.MORPH_CLOSE, kernel, iterations=1)
+        return refined
+    except Exception as e:
+        print(f"[WARN] filter_shadows_in_mask: {e}")
+        return mask
+
+
+def _heights_from_mask(mask: np.ndarray) -> np.ndarray:
+    """Devuelve un array con la altura (max_y - min_y) de cada columna no
+    vacía de la máscara binaria. Filtra columnas con sólo 1 píxel para
+    eliminar ruido de los bordes laterales del bbox."""
+    if mask is None or mask.size == 0:
+        return np.array([])
+    cols = []
+    for c in range(mask.shape[1]):
+        ys = np.where(mask[:, c] > 0)[0]
+        if len(ys) > 0:
+            cols.append(int(ys.max() - ys.min()))
+    arr = np.array(cols)
+    return arr[arr > 1]
+
+
+def measure_lateral_height_robust(img_lateral: Image.Image,
+                                   crop_lat: Image.Image,
+                                   bbox_lat_norm: list) -> tuple:
+    """Estima la altura del crop lateral combinando SAM + filtrado de sombras
+    + estadísticas robustas del perfil de columnas.
+
+    Estrategia:
+      • Tomamos la silueta de la pieza desde SAM (con filtro HSV de sombras).
+      • Medimos altura por columna y agregamos con la **mediana** (robusta
+        a sombras alargadas en una mitad de la imagen y a estallidos en
+        bordes con bevel/halo).
+      • También calculamos P90 como cota superior y un "modo" más fino
+        (la altura más frecuente con tolerancia ±1 px). Si la mediana y
+        el modo coinciden, devolvemos la mediana como valor canónico.
+      • Si SAM no está disponible o la máscara es casi vacía tras filtrar,
+        caemos a la segmentación HSV del crop.
+
+    Devuelve (height_px, n_cols_validas, source_label).
+    """
+    def _summarize(arr: np.ndarray) -> tuple:
+        """Devuelve (h_px, label_extra) escogiendo la métrica más robusta."""
+        if arr.size == 0:
+            return (None, "empty")
+        median_v = float(np.median(arr))
+        p90_v = float(np.percentile(arr, 90))
+        # Modo aproximado: altura más frecuente con tolerancia ±1 px.
+        from collections import Counter
+        rounded = np.rint(arr).astype(int)
+        counter = Counter(rounded.tolist())
+        mode_v = counter.most_common(1)[0][0]
+        # La mediana es la estadística más robusta cuando hay sombras;
+        # P90 puede sobreestimar si el bbox incluye sombras alargadas
+        # en columnas concretas.
+        return (median_v, f"P50={median_v:.1f}, P90={p90_v:.1f}, mode={mode_v}")
+
+    # 1) SAM sobre la imagen completa.
+    try:
+        mask_sam = segment_crop_sam(img_lateral, bbox_lat_norm)
+        if mask_sam is not None and mask_sam.size > 0 and np.any(mask_sam):
+            mask_sam_clean = filter_shadows_in_mask(crop_lat, mask_sam)
+            if np.sum(mask_sam_clean > 0) < max(20, 0.05 * mask_sam_clean.size):
+                # El filtro deja poco; nos quedamos con la SAM cruda.
+                arr = _heights_from_mask(mask_sam)
+                src_prefix = "SAM (sin filtro: pieza muy oscura)"
+            else:
+                arr = _heights_from_mask(mask_sam_clean)
+                src_prefix = "SAM+shadow_filter"
+            if arr.size >= 3:
+                h_px, extra = _summarize(arr)
+                if h_px is not None:
+                    return (h_px, int(arr.size), f"{src_prefix}+P50 [{extra}]")
+    except Exception as e:
+        print(f"[WARN] measure_lateral_height_robust SAM: {e}")
+
+    # 2) Fallback: segmentación HSV del crop con filtro de sombras.
+    try:
+        mask_hsv = segment_crop(crop_lat)
+        mask_hsv_clean = filter_shadows_in_mask(crop_lat, mask_hsv)
+        arr = _heights_from_mask(mask_hsv_clean)
+        if arr.size >= 3:
+            h_px, extra = _summarize(arr)
+            if h_px is not None:
+                return (h_px, int(arr.size), f"HSV+shadow_filter+P50 [{extra}]")
+    except Exception as e:
+        print(f"[WARN] measure_lateral_height_robust HSV: {e}")
+
+    # 3) Último fallback: altura del bbox.
+    h_bbox_px = (bbox_lat_norm[3] - bbox_lat_norm[1]) * img_lateral.height
+    return (h_bbox_px, 0, "bbox_height_fallback (sin segmentación)")
+
 
 def img_to_base64(img: Image.Image, fmt="PNG") -> str:
     buf = BytesIO()
@@ -308,15 +564,27 @@ def get_catalog_color(part_ref: str) -> dict:
 
 
 def get_stable_pose_info(part_ref: str, pose_index: int = 0) -> dict:
-    """Get stable pose info from cache."""
+    """Get stable pose info from cache.
+
+    El cache (sync_stable_poses_cache.py) renumera `pose_index` 0..N-1
+    tras filtrado pero conserva el `original_pose_index` con la enumeración
+    original de la BD. Buscamos primero por `original_pose_index` (lo que
+    guarda test_metadata.json viene de la BD) y caemos a `pose_index`
+    nuevo si no está disponible.
+    """
     cache_path = os.path.join(project_root, "data", "stable_poses_cache.json")
     if not os.path.exists(cache_path):
         return {}
     with open(cache_path, "r") as f:
         cache = json.load(f)
     poses = cache.get(part_ref, [])
+    # Match por original_pose_index (canónico)
     for p in poses:
-        if p.get("pose_index", 0) == pose_index:
+        if p.get("original_pose_index") == pose_index:
+            return p
+    # Fallback: pose_index nuevo
+    for p in poses:
+        if p.get("pose_index", -1) == pose_index:
             return p
     return poses[0] if poses else {}
 
@@ -432,7 +700,7 @@ th {{ background: #e8eaf6; font-weight: 600; }}
 </div>
 <div>
 <img src="data:image/png;base64,{img_crop_contour_cenital_b64}" alt="Contorno Cenital Crop">
-<div class="img-label">Contorno Segmentado (Zoom)</div>
+<div class="img-label">segmentacion SAM</div>
 </div>
 <div>
 <img src="data:image/png;base64,{img_crop_lateral_b64}" alt="BBox Lateral Crop">
@@ -468,42 +736,46 @@ th {{ background: #e8eaf6; font-weight: 600; }}
 
 <div class="section">
 <h2>📐 4. Superficie Cenital</h2>
+<p style="color:#555; font-size:0.9em;">
+"Superficie estimada" es el área en mm² medida sobre la máscara segmentada
+del crop cenital ({sam_label_text}) <strong>después de aplicar las correcciones
+de perspectiva y distancia</strong> (división por el factor de magnificación
+<code>(150/d_3D)²</code> para des-escorzar piezas excéntricas o con altura).
+"BD, superficie silueta" es el valor de referencia
+<code>zenith_silhouette_area</code> de <code>stable_poses_cache.json</code>:
+silueta 2D estricta proyectada a −Z, sin caras laterales.
+</p>
 <table>
-<tr><th>Campo</th><th>Valor (Bounding Box)</th><th>Valor (Máscara Contenido)</th></tr>
+<tr><th>Campo</th><th>Valor</th></tr>
 <tr>
   <td><strong>Superficie estimada</strong></td>
-  <td><strong>{surface_bbox_estimated:.1f} mm²</strong></td>
-  <td><strong>{surface_mask_estimated:.1f} mm²</strong></td>
+  <td><strong>{surface_estimated_corrected:.1f} mm²</strong></td>
 </tr>
 <tr>
-  <td><strong>Superficie nominal pose estable (BD)</strong></td>
-  <td>{surface_nominal_bbox:.1f} mm²</td>
-  <td>{surface_nominal_mask:.1f} mm²</td>
-</tr>
-<tr>
-  <td><strong>Factor magnificación perspectiva</strong></td>
-  <td colspan="2">{magnification:.4f} — (150/(150-{rest_height:.1f}))²</td>
-</tr>
-<tr>
-  <td><strong>Superficie aparente corregida</strong></td>
-  <td>{surface_apparent_bbox:.1f} mm²</td>
-  <td>{surface_apparent_mask:.1f} mm²</td>
+  <td>BD, superficie silueta</td>
+  <td>{surface_silhouette_db:.1f} mm²</td>
 </tr>
 <tr>
   <td><strong>Error relativo</strong></td>
-  <td class="{surface_error_bbox_class}">{surface_error_bbox:.1f}%</td>
-  <td class="{surface_error_mask_class}">{surface_error_mask:.1f}%</td>
+  <td class="{surface_err_silh_class}">{surface_error_silhouette_pct:+.1f}%</td>
 </tr>
 </table>
 </div>
 
 <div class="section">
 <h2>📏 5. Altura Lateral</h2>
+<p style="color:#555; font-size:0.9em;">
+La altura se mide a partir de la silueta lateral del crop usando segmentación
+HSV del fondo y la <strong>mediana</strong> del perfil de columnas (mecanismo
+original del script). <em>No</em> se le suma <code>stud_offset_mm</code> a la
+altura nominal: la silueta lateral ya contiene los studs si la pose los tiene
+visibles.
+</p>
 <table>
 <tr><th>Campo</th><th>Valor</th></tr>
 <tr><td>Altura binding box</td><td>{height_bbox_lat:.2f} mm</td></tr>
 <tr><td>Altura estimada (corregida)</td><td><strong>{height_estimated:.2f} mm</strong></td></tr>
-<tr><td>Altura real pose estable (BD)</td><td>{height_nominal:.2f} mm</td></tr>
+<tr><td>Altura real pose estable (BD, sin stud_offset añadido)</td><td>{height_nominal:.2f} mm</td></tr>
 <tr><td>Factor magnificación perspectiva lateral</td><td>{mag_lat:.4f} — (d_nom / d_act)</td></tr>
 <tr><td>Error relativo</td><td class="{height_error_class}">{height_error:.1f}%</td></tr>
 </table>
@@ -627,129 +899,174 @@ def generate_report(part_ref: str, pose_index: int = None):
     # Match criteria (based on nearest inferred color matching the catalog color code)
     color_match = (nearest_cen["color_code"] == color_catalog["color_code"])
 
-    # 6. Surface estimation (Two approaches: BBox vs Mask)
-    surface_bbox_estimated = measure_bbox_surface_mm2(crop_cen)
-    surface_mask_estimated = measure_surface_mm2(crop_cen)
+    # ─────────────────────────────────────────────────────────────────────
+    # 6. Estimación de superficie cenital (sólo máscara, sin BBox)
+    # ─────────────────────────────────────────────────────────────────────
+    # Métrica primaria: superficie del crop a partir de la máscara segmentada
+    # (conteo de píxeles / px_per_mm²). Refinamos con SAM + filtro de sombras
+    # para mayor robustez frente a sombras proyectadas sobre la cinta.
+    sam_mask_cen = segment_crop_sam(img_cenital, bbox_cen)
+    if sam_mask_cen is not None and sam_mask_cen.size > 0 and np.any(sam_mask_cen):
+        sam_mask_cen_clean = filter_shadows_in_mask(crop_cen, sam_mask_cen)
+        if np.sum(sam_mask_cen_clean > 0) >= max(20, 0.05 * sam_mask_cen_clean.size):
+            mask_for_area = sam_mask_cen_clean
+            sam_label_text = "SAM + filtrado HSV de sombras"
+        else:
+            # Si el filtro deja la máscara casi vacía (p.ej. piezas oscuras),
+            # nos quedamos con la SAM cruda.
+            mask_for_area = sam_mask_cen
+            sam_label_text = "SAM (sin filtro de sombras: pieza muy oscura)"
+    else:
+        mask_for_area = segment_crop(crop_cen)
+        sam_label_text = "segmentación HSV (fallback, SAM no disponible)"
+    surface_mask_estimated = float(np.sum(mask_for_area > 0)) / (PX_PER_MM_CENITAL ** 2)
 
-    dims = get_part_dimensions(part_ref)
-    L, W, H = sorted(dims, reverse=True)
     pose_info = get_stable_pose_info(part_ref, pose_idx)
-    
-    # Calcular altura nominal y superficie nominal exactas en Blender usando rotación de esquinas 3D
-    rest_height = H
-    surface_nominal_bbox = L * W
-    has_studs_on_top = False
-    
-    if pose_info and "orientation_quat" in pose_info:
-        quat = pose_info["orientation_quat"]
-        w, x, y, z = quat
-        R = np.array([
-            [1 - 2*y**2 - 2*z**2,     2*x*y - 2*w*z,         2*x*z + 2*w*y],
-            [2*x*y + 2*w*z,         1 - 2*x**2 - 2*z**2,     2*y*z - 2*w*x],
-            [2*x*z - 2*w*y,         2*y*z + 2*w*x,         1 - 2*x**2 - 2*y**2]
-        ])
-        corners = np.array([
-            [-L/2, -H/2, -W/2],
-            [-L/2, -H/2,  W/2],
-            [-L/2,  H/2, -W/2],
-            [-L/2,  H/2,  W/2],
-            [ L/2, -H/2, -W/2],
-            [ L/2, -H/2,  W/2],
-            [ L/2,  H/2, -W/2],
-            [ L/2,  H/2,  W/2]
-        ])
-        rotated_corners = corners @ R.T
-        rest_height = np.max(rotated_corners[:, 2]) - np.min(rotated_corners[:, 2])
-        
-        # Superficie nominal de la cara de contacto plana (volumen dividido por la altura)
-        surface_nominal_bbox = (L * W * H) / rest_height
-        
-        # Verificar si los studs (eje Y+ de LDraw) apuntan hacia arriba en Blender (Z+)
-        stud_vector = R @ np.array([0.0, 1.0, 0.0])
-        if stud_vector[2] > 0.5:
-            has_studs_on_top = True
-            
-    # Apply filling factor for nominal mask surface
-    filling_factor = 1.0
-    if part_ref in ["6141", "98138", "4032", "3062", "59900"]:
-        filling_factor = 0.785
-    elif part_ref == "2420":
-        filling_factor = 0.75
-    elif part_ref in ["3039", "3298", "3037", "3665", "85984", "54200", "11477", "15068"]:
-        filling_factor = 0.85
-    elif part_ref in ["2412", "2877"]:
-        filling_factor = 0.92
-        
-    surface_nominal_mask = surface_nominal_bbox * filling_factor
-    
-    # Perspective magnification
-    magnification = (150.0 / (150.0 - rest_height)) ** 2
-    surface_apparent_bbox = surface_nominal_bbox * magnification
-    surface_apparent_mask = surface_nominal_mask * magnification
-    
-    surface_error_bbox = abs(surface_bbox_estimated - surface_apparent_bbox) / surface_apparent_bbox * 100 if surface_apparent_bbox > 0 else 0
-    surface_error_mask = abs(surface_mask_estimated - surface_apparent_mask) / surface_apparent_mask * 100 if surface_apparent_mask > 0 else 0
+    cache_lateral_h = pose_info.get("lateral_height") if pose_info else None
+    cache_zen_obs   = pose_info.get("zenith_observable_area") if pose_info else None
+    # `zenith_silhouette_area` (migration 010): silueta 2D estricta del
+    # contorno proyectado a -Z, sin caras laterales. Es el valor que usamos
+    # como referencia de BD para la sección "Superficie Cenital" del report.
+    cache_zen_silh  = pose_info.get("zenith_silhouette_area") if pose_info else None
 
-    # 7. Height estimation
-    # Altura nominal de la base de datos (con stud offset si procede)
-    height_nominal = rest_height
+    # Silueta cenital real del mesh, según cache (LDraw + populate_stable_pose_dims).
+    if cache_zen_obs:
+        surface_nominal_raw = float(cache_zen_obs)
+        surface_nominal_source_text = "(zenith_observable_area)"
+    else:
+        # Fallback: AABB nominal de la pieza si la pose no está cacheada.
+        dims_fallback = get_part_dimensions(part_ref)
+        L_fb, W_fb, H_fb = sorted(dims_fallback, reverse=True)
+        surface_nominal_raw = L_fb * W_fb
+        surface_nominal_source_text = "(fallback AABB nominal — pose sin cache)"
+
+    # Detección de studs hacia arriba a partir de face_class.
+    has_studs_on_top, n_studs_top, studs_reason = detect_studs_top_from_pose(pose_info, part_ref)
+    if has_studs_on_top and n_studs_top > 0:
+        # Descontamos el área visible de los studs si la pose tiene la base
+        # apoyada (cara Bottom). La silueta cenital incluye los studs por
+        # ser cilindros que sobresalen hacia +Z.
+        studs_area_to_subtract = n_studs_top * STUD_AREA_MM2
+        surface_nominal_mask = max(0.0, surface_nominal_raw - studs_area_to_subtract)
+        studs_top_text = (f"<strong>Sí</strong> — {studs_reason}. "
+                          f"Se restan {n_studs_top} studs × {STUD_AREA_MM2:.1f} mm² "
+                          f"= {studs_area_to_subtract:.1f} mm²")
+    else:
+        surface_nominal_mask = surface_nominal_raw
+        studs_top_text = f"No — {studs_reason}"
+
+    # ─── Altura efectiva sobre la superficie de la cinta ───
+    # Para la magnificación de perspectiva nos interesa la altura del plano
+    # superior de la pieza (donde mira la cámara cenital).
+    if cache_lateral_h:
+        rest_height = float(cache_lateral_h)
+    else:
+        rest_height = get_part_dimensions(part_ref)[2]
     if has_studs_on_top:
-        height_nominal += 0.9
-    
-    # 1. Posición relativa en la cinta (X, Y) obtenida del centro de la bounding box cenital.
+        # En cenital, los studs sí asoman por encima de la base; la cara
+        # superior efectiva está ~0.9 mm más arriba que `lateral_height`.
+        face_top_z_mm = rest_height + STUD_HEIGHT_MM
+    else:
+        face_top_z_mm = rest_height
+
+    # ─── Centro proyectado de la pieza en la imagen cenital → (Δx, Δy) en mm ───
     cx_cen = (bbox_cen[0] + bbox_cen[2]) / 2.0
     cy_cen = (bbox_cen[1] + bbox_cen[3]) / 2.0
-    dx_mm = (cx_cen * 640.0 - 320.0) / PX_PER_MM_CENITAL
-    dy_mm = (320.0 - cy_cen * 640.0) / PX_PER_MM_CENITAL
-    
-    # Distancia horizontal desde la cámara lateral (150.0, 0.0) hasta el centro de la pieza
-    d_dist_horiz = math.sqrt((150.0 - dx_mm)**2 + dy_mm**2)
-    
-    # 2. Medir la altura vertical en píxeles utilizando la mediana del perfil de las columnas
+    iw_cen, ih_cen = img_cenital.size
+    piece_dx_mm = (cx_cen * iw_cen - iw_cen / 2.0) / PX_PER_MM_CENITAL
+    piece_dy_mm = (ih_cen / 2.0 - cy_cen * ih_cen) / PX_PER_MM_CENITAL
+
+    # Distancia 3D real desde la cámara cenital (0, 0, 150 mm) al centro de la
+    # cara superior de la pieza (corrección de escorzo). El factor de
+    # magnificación es proporcional a (h_cam / d_3D)².
+    cenital_dist_3d_mm = math.sqrt(
+        piece_dx_mm ** 2 + piece_dy_mm ** 2
+        + (CAM_CENITAL_HEIGHT_MM - face_top_z_mm) ** 2
+    )
+    if cenital_dist_3d_mm > 0:
+        magnification = (CAM_CENITAL_HEIGHT_MM / cenital_dist_3d_mm) ** 2
+    else:
+        magnification = 1.0
+    surface_apparent_mask = surface_nominal_mask * magnification
+
+    surface_error_mask = (
+        abs(surface_mask_estimated - surface_apparent_mask) / surface_apparent_mask * 100
+        if surface_apparent_mask > 0 else 0.0
+    )
+    surface_error_mask_class = "match" if surface_error_mask < 15 else "mismatch"
+
+    # ─── Sección 4 simplificada (BD silueta vs estimación corregida) ───
+    # `surface_mask_estimated` se mide con la calibración constante
+    # `PX_PER_MM_CENITAL` (≈ válida en el origen del FOV). Para piezas
+    # situadas fuera del centro o con altura no nula, la perspectiva
+    # **amplifica** los píxeles medidos por un factor `magnification`
+    # ((150/d_3D)²). Para obtener la "superficie estimada real" después
+    # de corregir perspectiva y distancia, dividimos por ese factor:
+    surface_estimated_corrected = (
+        surface_mask_estimated / magnification if magnification > 0
+        else surface_mask_estimated
+    )
+    # Referencia de BD: silueta 2D pura (sin caras laterales), si está;
+    # en su defecto fallback al área observable o al AABB nominal.
+    if cache_zen_silh:
+        surface_silhouette_db = float(cache_zen_silh)
+    elif cache_zen_obs:
+        surface_silhouette_db = float(cache_zen_obs)
+    else:
+        surface_silhouette_db = surface_nominal_raw
+    # Error relativo SIGNED: positivo si sobre-estima, negativo si sub-estima.
+    surface_error_silhouette_pct = (
+        (surface_estimated_corrected - surface_silhouette_db)
+        / surface_silhouette_db * 100.0
+        if surface_silhouette_db > 0 else 0.0
+    )
+    surface_err_silh_class = (
+        "match" if abs(surface_error_silhouette_pct) < 15 else "mismatch"
+    )
+
+    # ─────────────────────────────────────────────────────────────────────
+    # 7. Estimación de altura lateral (mecanismo original — NO modificar)
+    # ─────────────────────────────────────────────────────────────────────
+    # Altura nominal: tal cual viene del cache. NO sumamos stud_offset_mm
+    # adicional aquí (la silueta lateral ya contiene los studs si los hay).
+    height_nominal = rest_height
+
+    # Medición tradicional: segmentación HSV del crop lateral + mediana del
+    # perfil de columnas de la máscara (mecanismo original del script).
     mask_lat = segment_crop(crop_lat)
     col_heights = []
     for col in range(mask_lat.shape[1]):
         ys = np.where(mask_lat[:, col] > 0)[0]
         if len(ys) > 0:
-            col_heights.append(max(ys) - min(ys))
-            
-    # Altura en mm medida de la mediana (para ignorar la distorsión de esquinas del volumen 3D)
-    height_measured_px = np.median(col_heights) if col_heights else (bbox_lat[3] - bbox_lat[1]) * img_lateral.height
+            col_heights.append(int(ys.max() - ys.min()))
+    if col_heights:
+        height_measured_px = float(np.median(col_heights))
+    else:
+        height_measured_px = (bbox_lat[3] - bbox_lat[1]) * img_lateral.height
     height_bbox_lat = height_measured_px / PX_PER_MM_LATERAL
-    
-    # 3. Ángulo de la cámara lateral (en 150, 0, 25) al centro del binding box lateral
-    cy_lat = (bbox_lat[1] + bbox_lat[3]) / 2.0
-    v_px = 320.0 - cy_lat * 640.0  # Desviación respecto al centro óptico en Y (positivo hacia arriba)
-    f_pix = 480.0                  # f_pix = f * Res / Sensor_width = 27 * 640 / 36 = 480
-    
-    # Ángulo theta del rayo respecto al eje óptico de la cámara
-    theta = math.atan(v_px / f_pix)
-    
-    # Ángulo de inclinación del eje óptico de la cámara lateral respecto al plano horizontal (hacia abajo)
-    alpha = math.atan(25.0 / 150.0)
-    
-    # Ángulo total phi respecto a la horizontal (positivo hacia arriba, negativo hacia abajo)
+
+    # ─── Corrección de magnificación lateral ───
+    # Cámara lateral en (150, 0, 25) mm. Necesitamos la distancia 3D real
+    # desde la cámara al centro de la pieza para corregir el factor.
+    d_horiz_lat = math.sqrt(
+        (CAM_LATERAL_X_MM - piece_dx_mm) ** 2 + piece_dy_mm ** 2
+    )
+    cy_lat_norm = (bbox_lat[1] + bbox_lat[3]) / 2.0
+    v_px = (img_lateral.height / 2.0) - cy_lat_norm * img_lateral.height
+    theta = math.atan(v_px / CAM_FOCAL_PX)
+    alpha = math.atan(CAM_LATERAL_Z_MM / CAM_LATERAL_X_MM)
     phi = theta - alpha
-    
-    # Estimación de la coordenada Z del centro de la pieza usando la distancia horizontal y el ángulo
-    z_piece_center = 25.0 + d_dist_horiz * math.tan(phi)
-    
-    # Distancia tridimensional real desde la cámara lateral hasta el centro de la pieza
-    d_act = math.sqrt(d_dist_horiz**2 + (25.0 - z_piece_center)**2)
-    
-    # Distancia nominal al centro de la cinta (0,0,0)
-    d_nom = math.sqrt(150.0**2 + 25.0**2)
-    
-    # Factor magnificación perspectiva lateral
+    z_piece_center = CAM_LATERAL_Z_MM + d_horiz_lat * math.tan(phi)
+    d_act = math.sqrt(d_horiz_lat ** 2 + (CAM_LATERAL_Z_MM - z_piece_center) ** 2)
+    d_nom = math.sqrt(CAM_LATERAL_X_MM ** 2 + CAM_LATERAL_Z_MM ** 2)
     mag_lat = d_nom / d_act if d_act > 0 else 1.0
-    
-    # Altura estimada corregida matemáticamente
+
     height_estimated = height_bbox_lat / mag_lat
-    
-    # Error relativo
-    height_error = abs(height_estimated - height_nominal) / height_nominal * 100 if height_nominal > 0 else 0
-
-
+    height_error = (
+        abs(height_estimated - height_nominal) / height_nominal * 100
+        if height_nominal > 0 else 0.0
+    )
+    height_error_class = "match" if height_error < 15 else "mismatch"
 
     # 8. DINOv2 classification
     valid_refs = SELECTED_PARTS
@@ -793,7 +1110,7 @@ def generate_report(part_ref: str, pose_index: int = None):
         img_lateral_b64=img_to_base64(img_bbox_lateral),
         
         img_crop_cenital_b64=img_to_base64(crop_cen),
-        img_crop_contour_cenital_b64=img_to_base64(draw_crop_contour(crop_cen, mask_cen)),
+        img_crop_contour_cenital_b64=img_to_base64(get_sam_segmented_crop(crop_cen, segment_crop_sam(img_cenital, bbox_cen))),
         img_crop_lateral_b64=img_to_base64(crop_lat),
         
         color_detected_cenital_code=color_cen_code,
@@ -814,25 +1131,21 @@ def generate_report(part_ref: str, pose_index: int = None):
         color_match_class="match" if color_match else "mismatch",
         color_match_text="✓ Match (Cenital Inferido)" if color_match else "✗ Mismatch",
         
-        surface_bbox_estimated=surface_bbox_estimated,
-        surface_mask_estimated=surface_mask_estimated,
-        surface_nominal_bbox=surface_nominal_bbox,
-        surface_nominal_mask=surface_nominal_mask,
-        magnification=magnification,
-        rest_height=rest_height,
-        surface_apparent_bbox=surface_apparent_bbox,
-        surface_apparent_mask=surface_apparent_mask,
-        surface_error_bbox=surface_error_bbox,
-        surface_error_mask=surface_error_mask,
-        surface_error_bbox_class="match" if surface_error_bbox < 15 else "mismatch",
-        surface_error_mask_class="match" if surface_error_mask < 15 else "mismatch",
-        
+        # ── Sección 4: superficie cenital (silueta BD vs estimada
+        # corregida por perspectiva y distancia) ──
+        sam_label_text=sam_label_text,
+        surface_estimated_corrected=surface_estimated_corrected,
+        surface_silhouette_db=surface_silhouette_db,
+        surface_error_silhouette_pct=surface_error_silhouette_pct,
+        surface_err_silh_class=surface_err_silh_class,
+
+        # ── Sección 5: altura lateral ──
         height_bbox_lat=height_bbox_lat,
         height_estimated=height_estimated,
         height_nominal=height_nominal,
         mag_lat=mag_lat,
         height_error=height_error,
-        height_error_class="match" if height_error < 15 else "mismatch",
+        height_error_class=height_error_class,
         dinov2_cenital_topk=format_topk_cells(topk_cen),
         dinov2_lateral_topk=format_topk_cells(topk_lat),
         dinov2_fusion_topk=format_topk_cells(topk_fusion),

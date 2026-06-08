@@ -189,6 +189,45 @@
         </div>
     </div>
 
+    <!-- ══════════════════════════════════════════════
+         MODAL CONFIGURACIÓN SIMULACIÓN FOV DINOv2
+         ══════════════════════════════════════════════ -->
+    <div id="dino-fov-overlay" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.6); z-index:2000; backdrop-filter:blur(4px);"></div>
+    <div id="dino-fov-modal" style="display:none; position:fixed; top:50%; left:50%; transform:translate(-50%, -50%); width:420px; background:linear-gradient(135deg, #1e293b 0%, #0f172a 100%); border:1px solid rgba(255,255,255,0.1); border-radius:16px; padding:24px; z-index:2001; box-shadow:0 20px 25px -5px rgba(0,0,0,0.5), 0 10px 10px -5px rgba(0,0,0,0.4); color:#fff; font-family:Outfit, sans-serif;">
+        <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid rgba(255,255,255,0.1); padding-bottom:12px; margin-bottom:16px;">
+            <h3 style="margin:0; font-size:1.1rem; font-weight:600; background:linear-gradient(135deg, #a78bfa, #38bdf8); -webkit-background-clip:text; -webkit-text-fill-color:transparent;">Actualizar Embeddings DINOv2</h3>
+            <button id="btn-close-dino-modal" style="background:none; border:none; color:#94a3b8; font-size:1.2rem; cursor:pointer; padding:4px; line-height:1;">✕</button>
+        </div>
+        <div style="display:flex; flex-direction:column; gap:16px;">
+            <div class="config-group" style="margin:0; display:flex; flex-direction:column; gap:6px;">
+                <label style="display:block; font-size:0.85rem; color:#94a3b8; font-weight:500;">Referencia de Pieza (LDraw Ref)</label>
+                <select id="dino-part-ref-select" style="width:100%; padding:10px; border-radius:8px; border:1px solid rgba(255,255,255,0.15); background:#0f172a; color:#fff; font-size:0.9rem; outline:none; cursor:pointer; font-family:Outfit,sans-serif;">
+                    <option value="">Seleccione una pieza...</option>
+                </select>
+            </div>
+            
+            <div style="display:flex; gap:12px;">
+                <div class="config-group" style="flex:1; margin:0; display:flex; flex-direction:column; gap:6px;">
+                    <label style="display:block; font-size:0.85rem; color:#94a3b8; font-weight:500;">Rotaciones por pieza</label>
+                    <input type="number" id="dino-rotations" value="12" min="1" max="72" style="width:100%; padding:10px; border-radius:8px; border:1px solid rgba(255,255,255,0.15); background:#0f172a; color:#fff; font-size:0.9rem; outline:none; font-family:Outfit,sans-serif;">
+                </div>
+                <div class="config-group" style="flex:1; margin:0; display:flex; flex-direction:column; gap:6px;">
+                    <label style="display:block; font-size:0.85rem; color:#94a3b8; font-weight:500;">Cant. piezas en FOV</label>
+                    <input type="number" id="dino-pieces-count" value="30" min="1" max="200" style="width:100%; padding:10px; border-radius:8px; border:1px solid rgba(255,255,255,0.15); background:#0f172a; color:#fff; font-size:0.9rem; outline:none; font-family:Outfit,sans-serif;">
+                </div>
+            </div>
+
+            <div style="font-size:0.75rem; color:#94a3b8; line-height:1.4; background:rgba(255,255,255,0.03); border:1px dashed rgba(255,255,255,0.1); border-radius:8px; padding:10px; margin-top:4px;">
+                💡 Se cargará la pieza en Blender, se colocará en posiciones estables de la BD respetando un margen mínimo de 10 mm sin solaparse y se extraerán sus embeddings. Los embeddings previos de esta pieza serán reemplazados.
+            </div>
+
+            <div style="display:flex; gap:12px; margin-top:8px;">
+                <button id="btn-cancel-dino-sim" class="btn btn-secondary" style="flex:1; padding:10px; border-radius:8px; font-family:Outfit,sans-serif;">Cancelar</button>
+                <button id="btn-submit-dino-sim" class="btn btn-primary" style="flex:1; padding:10px; border-radius:8px; background:linear-gradient(135deg,#a78bfa,#7c3aed); border:none; font-family:Outfit,sans-serif; color:#fff; cursor:pointer; font-weight:600;">Generar</button>
+            </div>
+        </div>
+    </div>
+
     <div id="app-layout">
         <!-- ══════════ SIDEBAR ══════════ -->
         <aside id="sidebar">
@@ -202,7 +241,10 @@
                     <span>🏠</span> Dashboard
                 </a>
                 <a class="nav-item" data-view="liveview" id="nav-liveview">
-                    <span>📹</span> Vista en Vivo
+                    <span>🔬</span> Inferencia - Test, Cinta Ancha
+                </a>
+                <a class="nav-item" data-view="liveview-multicam" id="nav-liveview-multicam">
+                    <span>📷</span> Inferencia-Test, 1 pieza, 3 imágenes
                 </a>
                 <a class="nav-item" data-view="setsearch" id="nav-setsearch">
                     <span>🧱</span> Sets Reales
@@ -284,98 +326,141 @@
                     </div>
                 </div>
             </section>
-            <!-- ── VISTA: VISTA EN VIVO ── -->
+            <!-- VISTA: INFERENCIA-TEST, CINTA ANCHA -->
             <section id="view-liveview" class="page-view">
                 <div class="dashboard-header">
-                    <h2 class="dashboard-title">Monitoreo de Cámara en Vivo</h2>
+                    <h2 class="dashboard-title">Inferencia - Test, Cinta Ancha &mdash; Simulación de Cinta</h2>
                 </div>
-
-                <div class="glass-panel" style="padding-bottom: 12px; display: flex; gap: 24px; align-items: center; flex-wrap: wrap;">
-                    <!-- Slider de velocidad de cinta -->
-                    <div class="speed-slider-wrap" style="flex: 1; min-width: 200px; display: flex; align-items: center; gap: 12px; margin: 0;">
-                        <label style="white-space: nowrap; margin: 0;">🏃 Velocidad:</label>
-                        <input type="range" id="belt-speed-slider" min="1" max="10" step="0.5" value="4" style="flex: 1; margin: 0;">
-                        <span id="speed-value-display" style="white-space: nowrap; min-width: 65px; text-align: right; margin: 0;">4.0 m/min</span>
+                <div class="glass-panel" style="padding-bottom:12px;display:flex;gap:24px;align-items:center;flex-wrap:wrap;">
+                    <div style="flex:1;min-width:200px;display:flex;align-items:center;gap:12px;margin:0;">
+                        <label style="white-space:nowrap;margin:0;">Velocidad:</label>
+                        <input type="range" id="belt-speed-slider" min="1" max="10" step="0.5" value="4" style="flex:1;margin:0;">
+                        <span id="speed-value-display" style="white-space:nowrap;min-width:65px;text-align:right;margin:0;">4.0 m/min</span>
                     </div>
-                    <!-- Selector de set target -->
-                    <div class="set-selector-wrap" style="flex: 1.5; min-width: 300px; display: flex; align-items: center; gap: 12px;">
-                        <label for="select-target-set" style="white-space: nowrap; color: var(--text-secondary); font-size: 0.9rem; font-weight: 500;">🎯 Set Objetivo:</label>
-                        <select id="select-target-set" style="flex: 1; background: rgba(30, 41, 59, 0.7); border: 1px solid var(--border); border-radius: 6px; color: #fff; padding: 6px 12px; font-family: Outfit, sans-serif; font-size: 0.9rem; outline: none; cursor: pointer; transition: var(--transition);">
-                            <option value="75078-1" selected>75078-1 - Imperial Troop Transport (42 piezas únicas, 125 totales)</option>
+                    <div style="flex:1.5;min-width:300px;display:flex;align-items:center;gap:12px;">
+                        <label for="select-target-set" style="white-space:nowrap;color:var(--text-secondary);font-size:0.9rem;font-weight:500;">Set Objetivo:</label>
+                        <select id="select-target-set" style="flex:1;background:rgba(30,41,59,0.7);border:1px solid var(--border);border-radius:6px;color:#fff;padding:6px 12px;font-family:Outfit,sans-serif;font-size:0.9rem;outline:none;cursor:pointer;">
+                            <option value="75078-1" selected>75078-1 - Imperial Troop Transport (42 piezas &uacute;nicas, 125 totales)</option>
+                            <option value="911943-1">911943-1 - Luke Skywalker foil pack #1</option>
                             <option value="75280-1">75280-1 - 501st Legion Clone Troopers (258 piezas)</option>
                             <option value="75218-1">75218-1 - X-Wing Starfighter (730 piezas)</option>
                             <option value="75337-1">75337-1 - AT-TE Walker (1082 piezas)</option>
                         </select>
                     </div>
-                    <!-- Slider de Umbral de Confianza (Confidence Threshold) -->
-                    <div class="conf-slider-wrap" style="flex: 1; min-width: 200px; display: flex; align-items: center; gap: 12px; margin: 0;">
-                        <label style="white-space: nowrap; margin: 0;">🛡️ Confianza:</label>
-                        <input type="range" id="live-conf-slider" min="0.10" max="0.95" step="0.05" value="0.30" style="flex: 1; margin: 0;">
-                        <span id="live-conf-value" style="white-space: nowrap; min-width: 45px; text-align: right; margin: 0;">30%</span>
+                    <div style="flex:1;min-width:200px;display:flex;align-items:center;gap:12px;margin:0;">
+                        <label style="white-space:nowrap;margin:0;">Confianza:</label>
+                        <input type="range" id="live-conf-slider" min="0.10" max="0.95" step="0.05" value="0.30" style="flex:1;margin:0;">
+                        <span id="live-conf-value" style="white-space:nowrap;min-width:45px;text-align:right;margin:0;">30%</span>
+                    </div>
+                    <div style="flex:1;min-width:200px;display:flex;align-items:center;gap:12px;margin:0;">
+                        <label style="white-space:nowrap;margin:0;">Piezas en campo:</label>
+                        <input type="range" id="live-pieces-slider" min="1" max="100" step="1" value="30" style="flex:1;margin:0;">
+                        <span id="live-pieces-value" style="white-space:nowrap;min-width:45px;text-align:right;margin:0;">30</span>
+                    </div>
+                    <div style="flex:1;min-width:200px;display:flex;align-items:center;gap:12px;margin:0;">
+                        <label style="white-space:nowrap;margin:0;" for="live-is-rolling">Rodadura (is_rolling):</label>
+                        <input type="checkbox" id="live-is-rolling" checked style="width:16px;height:16px;cursor:pointer;accent-color:var(--accent);">
                     </div>
                 </div>
-
                 <div class="main-view-grid">
-                    <!-- Feed de la cámara -->
-                    <div class="glass-panel" style="position:relative;">
-                        <div class="camera-feed-container">
-                            <canvas id="live-canvas" class="camera-feed-image"></canvas>
-                            <div id="detection-overlay" class="detection-overlay"></div>
+                    <div class="glass-panel" style="display:flex;flex-direction:column;gap:18px;">
+                        <h3 class="panel-header">Acciones</h3>
+                        <div style="display:flex;flex-direction:column;gap:8px;">
+                            <button id="btn-generate-render" class="btn btn-secondary" style="width:100%;font-size:0.95rem;padding:12px 18px;">
+                                &#127916; Generar Render 2D (Blender)
+                            </button>
+                            <p style="font-size:0.78rem;color:var(--text-secondary);margin:0;padding:0 4px;">
+                                Genera imagen fotorrealista con las piezas del set sobre la cinta usando posiciones estables de la BD.
+                            </p>
+                            <div id="render-gen-status" style="display:none;font-size:0.8rem;padding:8px 12px;border-radius:6px;background:rgba(0,212,255,0.08);border:1px solid rgba(0,212,255,0.2);color:#7DF9AA;"></div>
                         </div>
-                        <div class="feed-controls" style="margin-top:12px;">
-                            <button id="btn-toggle-session" class="btn btn-primary">Iniciar Sesión de Inferencia</button>
-                            <button id="btn-capture-frame" class="btn btn-secondary">Capturar Frame</button>
+                        <div style="border-top:1px solid var(--border);margin:0;"></div>
+                        <div style="display:flex;flex-direction:column;gap:8px;">
+                            <button id="btn-toggle-session" class="btn btn-primary" style="width:100%;font-size:0.95rem;padding:12px 18px;">
+                                &#9654; Ejecutar Inferencia
+                            </button>
+                            <p style="font-size:0.78rem;color:var(--text-secondary);margin:0;padding:0 4px;">
+                                Ejecuta YOLO + DINOv2 sobre el render seleccionado. Selecciona primero un render en el panel derecho.
+                            </p>
                         </div>
-                        <p style="margin-top:8px; font-size:0.78rem; color:var(--text-secondary); text-align:center;">
-                            💡 Haz <strong>click</strong> sobre una bbox detectada para clasificar la pieza con DINOv2
-                        </p>
+                        <div style="border-top:1px solid var(--border);margin:0;"></div>
+                        <div style="display:flex;flex-direction:column;gap:10px;">
+                            <div class="config-group">
+                                <label>Sesi&oacute;n Activa:</label>
+                                <span id="live-session-id" style="font-size:0.85rem;font-family:monospace;">Ninguna</span>
+                            </div>
+                            <div class="config-group">
+                                <label>Latencia:</label>
+                                <span id="live-latency" style="font-size:1.1rem;font-weight:bold;">0.0 ms</span>
+                            </div>
+                            <div class="config-group">
+                                <label>Piezas en Frame:</label>
+                                <span id="live-frame-pieces" style="font-size:1.1rem;font-weight:bold;">0</span>
+                                <span id="live-bbox-count" style="display:none;">0</span>
+                            </div>
+                            <div id="set-simulation-status-wrap" style="display:none;border-top:1px solid var(--border);padding-top:10px;margin-top:4px;">
+                                <label style="color:#00ff88;font-weight:bold;">Simulaci&oacute;n Activa:</label>
+                                <span id="set-sim-badge" style="background:rgba(0,255,136,0.15);color:#00ff88;padding:4px 8px;border-radius:4px;font-weight:bold;font-size:0.82rem;display:inline-block;">Render Blender</span>
+                            </div>
+                        </div>
+                        <div style="border-top:1px solid var(--border);padding-top:14px;flex:1;display:flex;flex-direction:column;gap:8px;">
+                            <label style="font-weight:bold;color:#fff;font-size:0.9rem;">Capturas Secuenciales</label>
+                            <div id="sequential-camera-list" style="display:flex;flex-direction:column;gap:8px;max-height:220px;overflow-y:auto;padding-right:4px;min-height:80px;">
+                                <div style="color:var(--text-secondary);font-size:0.8rem;text-align:center;padding:12px;">Sin capturas registradas.</div>
+                            </div>
+                        </div>
                     </div>
-
-                    <!-- Info de inferencia -->
-                    <div class="glass-panel">
-                        <h3 class="panel-header">Info de Inferencia</h3>
-                        <div class="config-group">
-                            <label>Sesión Activa:</label>
-                            <span id="live-session-id" style="font-size:0.85rem; font-family:monospace;">Ninguna</span>
+                    <div class="glass-panel" style="display:flex;flex-direction:column;gap:16px;">
+                        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+                            <h3 class="panel-header" style="margin:0;border:none;padding:0;">Vista de Render 3D</h3>
+                            <button id="btn-refresh-renders" class="btn btn-secondary" style="font-size:0.75rem;padding:4px 12px;">&#8635; Actualizar lista</button>
                         </div>
-                        <div class="config-group">
-                            <label>Latencia de Procesamiento:</label>
-                            <span id="live-latency" style="font-size:1.25rem; font-weight:bold;">0.0 ms</span>
+                        <div style="display:flex;align-items:center;gap:10px;">
+                            <label style="white-space:nowrap;font-size:0.85rem;color:var(--text-secondary);">Render disponible:</label>
+                            <select id="select-inference-render" style="flex:1;background:rgba(30,41,59,0.7);border:1px solid var(--border);border-radius:6px;color:#fff;padding:6px 12px;font-family:Outfit,sans-serif;font-size:0.85rem;outline:none;">
+                                <option value="">&mdash; Sin renders generados &mdash;</option>
+                            </select>
+                            <button id="btn-delete-render" class="btn" style="background:linear-gradient(135deg, #ef4444 0%, #dc2626 100%);color:#fff;border:none;border-radius:6px;padding:6px 12px;font-size:0.85rem;cursor:pointer;display:none;align-items:center;gap:4px;font-family:Outfit,sans-serif;" title="Borrar render seleccionado">
+                                <span>🗑️</span> Borrar
+                            </button>
                         </div>
-                        <div class="config-group">
-                            <label>Piezas en Frame:</label>
-                            <span id="live-frame-pieces" style="font-size:1.25rem; font-weight:bold;">0</span>
+                        <div id="render-preview-container" style="flex:1;min-height:280px;background:rgba(0,0,0,0.3);border-radius:12px;border:1px solid var(--border);display:flex;align-items:center;justify-content:center;overflow:hidden;position:relative;">
+                            <div id="render-preview-placeholder" style="color:var(--text-secondary);text-align:center;padding:32px;">
+                                <span style="font-size:2.5rem;display:block;margin-bottom:10px;">&#128444;</span>
+                                <span style="font-size:0.85rem;">Selecciona un render para previsualizarlo<br>o genera uno nuevo con el bot&oacute;n de la izquierda.</span>
+                            </div>
+                            <img id="render-preview-img" src="" alt="Render inferencia" style="display:none;width:100%;height:100%;object-fit:contain;cursor:zoom-in;" title="Click para ver a tama&ntilde;o completo">
+                        </div>
+                        <div style="display:flex;flex-direction:column;gap:6px;">
+                            <div style="display:flex;justify-content:space-between;align-items:center;">
+                                <label style="font-weight:bold;color:#fff;font-size:0.85rem;">Metadata JSON</label>
+                                <span id="render-meta-summary" style="font-size:0.75rem;color:var(--text-secondary);"></span>
+                            </div>
+                            <pre id="render-meta-json" style="background:rgba(0,0,0,0.4);border:1px solid var(--border);border-radius:8px;padding:10px 14px;font-size:0.72rem;color:#7DF9AA;overflow-y:auto;max-height:200px;white-space:pre-wrap;word-break:break-all;font-family:monospace;margin:0;">Sin render seleccionado.</pre>
+                        </div>
+                    </div>
+                </div>
+                <div class="glass-panel" style="margin-top:24px;">
+                    <h3 class="panel-header">Historial de Frames de la Sesi&oacute;n (Guardados Temporalmente)</h3>
+                    <div style="display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap;width:100%;">
+                        <div style="flex:2;min-width:300px;display:flex;flex-direction:column;gap:12px;align-items:center;">
+                            <div class="camera-feed-container" style="max-width:480px;width:100%;">
+                                <canvas id="history-canvas" style="width:100%;height:auto;display:block;border-radius:8px;border:1px solid var(--border);"></canvas>
+                            </div>
+                            <div class="feed-controls" style="display:flex;justify-content:space-between;align-items:center;width:100%;max-width:480px;margin-top:4px;">
+                                <button id="btn-history-prev" class="btn btn-secondary" disabled>&#8592; Anterior</button>
+                                <span id="history-page-num" style="font-weight:bold;color:var(--accent);">Sin fotos capturadas</span>
+                                <button id="btn-history-next" class="btn btn-secondary" disabled>Siguiente &#8594;</button>
+                            </div>
+                        </div>
+                        <div style="flex:1;min-width:200px;">
+                            <label style="display:block;margin-bottom:8px;color:var(--text-secondary);font-size:0.9rem;">Miniaturas (Clic para visualizar / detectar):</label>
+                            <div id="history-thumbnails" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(85px,1fr));gap:8px;max-height:280px;overflow-y:auto;padding-right:4px;"></div>
                         </div>
                     </div>
                 </div>
 
-                <!-- Sección inferior: Historial de Frames de la Sesión -->
-                <div class="glass-panel" style="margin-top: 24px;">
-                    <h3 class="panel-header">📷 Historial de Frames de la Sesión (Guardados Temporalmente)</h3>
-                    <div style="display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap; width: 100%;">
-                        <!-- Columna izquierda: Navegación del Historial -->
-                        <div style="flex: 2; min-width: 300px; display: flex; flex-direction: column; gap: 12px; align-items: center;">
-                            <div class="camera-feed-container" style="max-width: 480px; width: 100%;">
-                                <canvas id="history-canvas" style="width: 100%; height: auto; display: block; border-radius: 8px; border: 1px solid var(--border);"></canvas>
-                            </div>
-                            <div class="feed-controls" style="display: flex; justify-content: space-between; align-items: center; width: 100%; max-width: 480px; margin-top: 4px;">
-                                <button id="btn-history-prev" class="btn btn-secondary" disabled>⬅️ Anterior</button>
-                                <span id="history-page-num" style="font-weight: bold; color: var(--accent);">Sin fotos capturadas</span>
-                                <button id="btn-history-next" class="btn btn-secondary" disabled>Siguiente ➡️</button>
-                            </div>
-                        </div>
-                        <!-- Columna derecha: Lista de Miniaturas -->
-                        <div style="flex: 1; min-width: 200px;">
-                            <label style="display: block; margin-bottom: 8px; color: var(--text-secondary); font-size: 0.9rem;">Miniaturas (Clic para visualizar / detectar):</label>
-                            <div id="history-thumbnails" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(85px, 1fr)); gap: 8px; max-height: 280px; overflow-y: auto; padding-right: 4px;">
-                                <!-- Se renderiza dinámicamente -->
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Sección: Recuento e Inventario de Inferencia vs Set Original -->
-                <div class="glass-panel" style="margin-top: 24px;">
+                <div class="glass-panel">
                     <h3 class="panel-header">📊 Recuento e Inventario de Inferencia (<span id="inference-set-title">Set 75078-1</span>)</h3>
                     <div class="inv-totals-bar">
                         <div class="inv-total-item set-total">
@@ -411,6 +496,179 @@
                 </div>
             </section>
 
+            <!-- VISTA: INFERENCIA-TEST, 1 PIEZA, 3 IMÁGENES -->
+            <section id="view-liveview-multicam" class="page-view">
+                <div class="dashboard-header">
+                    <h2 class="dashboard-title">Inferencia-Test &mdash; 1 pieza, 3 imágenes</h2>
+                </div>
+                <div class="glass-panel" style="padding-bottom:12px;display:flex;gap:24px;align-items:center;flex-wrap:wrap;">
+                    <div style="flex:1.5;min-width:300px;display:flex;align-items:center;gap:12px;">
+                        <label for="select-multicam-set" style="white-space:nowrap;color:var(--text-secondary);font-size:0.9rem;font-weight:500;">Set Objetivo:</label>
+                        <select id="select-multicam-set" style="flex:1;background:rgba(30,41,59,0.7);border:1px solid var(--border);border-radius:6px;color:#fff;padding:6px 12px;font-family:Outfit,sans-serif;font-size:0.9rem;outline:none;cursor:pointer;">
+                            <option value="75078-1" selected>75078-1 - Imperial Troop Transport (42 piezas &uacute;nicas, 125 totales)</option>
+                            <option value="911943-1">911943-1 - Luke Skywalker foil pack #1</option>
+                            <option value="75280-1">75280-1 - 501st Legion Clone Troopers (258 piezas)</option>
+                            <option value="75218-1">75218-1 - X-Wing Starfighter (730 piezas)</option>
+                            <option value="75337-1">75337-1 - AT-TE Walker (1082 piezas)</option>
+                        </select>
+                    </div>
+                    <div style="display:flex;gap:12px;">
+                        <button id="btn-multicam-generate" class="btn btn-secondary" style="font-size:0.9rem;padding:8px 16px;">
+                            ⚡ Generar Renders
+                        </button>
+                        <button id="btn-multicam-infer" class="btn btn-primary" style="font-size:0.9rem;padding:8px 16px;">
+                            🔍 Identificar Piezas
+                        </button>
+                    </div>
+                </div>
+
+                <div class="main-view-grid" style="grid-template-columns:1fr 3fr; gap:20px; align-items:stretch; margin-top:20px;">
+                    <!-- Panel Izquierdo: Control de Pieza -->
+                    <div class="glass-panel" style="display:flex;flex-direction:column;gap:18px;margin:0;height:100%;">
+                        <h3 class="panel-header">Control de Pieza</h3>
+                        <div style="display:flex;justify-content:space-between;align-items:center;width:100%;">
+                            <button id="btn-multicam-prev" class="btn btn-secondary" style="font-size:0.85rem;padding:6px 12px;" disabled>◀ Anterior</button>
+                            <span id="multicam-piece-indicator" style="font-weight:bold;color:var(--accent);font-size:0.95rem;text-align:center;">Sin renders</span>
+                            <button id="btn-multicam-next" class="btn btn-secondary" style="font-size:0.85rem;padding:6px 12px;" disabled>Siguiente ▶</button>
+                        </div>
+                        <div style="border-top:1px solid var(--border);margin:4px 0;"></div>
+                        <div class="config-group">
+                            <label>Pieza (Ground Truth):</label>
+                            <span id="multicam-gt-ref" style="font-size:0.9rem;font-weight:bold;">—</span>
+                        </div>
+                        <div class="config-group">
+                            <label>Descripción:</label>
+                            <span id="multicam-gt-name" style="font-size:0.85rem;color:var(--text-secondary);">—</span>
+                        </div>
+                        <div class="config-group">
+                            <label>Color Teórico:</label>
+                            <div style="display:flex;align-items:center;gap:8px;margin-top:4px;">
+                                <span id="multicam-gt-color-badge" style="width:14px;height:14px;border-radius:50%;border:1px solid #475569;display:inline-block;"></span>
+                                <span id="multicam-gt-color-text" style="font-size:0.85rem;">—</span>
+                            </div>
+                        </div>
+                        <div style="border-top:1px solid var(--border);margin:4px 0;"></div>
+                        <div class="config-group">
+                            <label style="color:#00ff88;font-weight:bold;">Consenso Multicámara:</label>
+                            <span id="multicam-consensus-ref" style="font-size:1.1rem;font-weight:bold;display:block;margin-top:4px;color:#00ff88;">—</span>
+                            <span id="multicam-consensus-name" style="font-size:0.85rem;color:var(--text-secondary);display:block;word-break:break-word;">—</span>
+                            <span id="multicam-consensus-score" style="font-size:0.85rem;color:#7DF9AA;font-weight:bold;display:block;margin-top:2px;">—</span>
+                        </div>
+                    </div>
+
+                    <!-- Panel Derecho: Feeds de Cámaras -->
+                    <div class="glass-panel" style="display:flex;flex-direction:column;gap:16px;margin:0;height:100%;">
+                        <h3 class="panel-header">Feeds de Cámaras Físicas (Cinta 10cm, Altura 15cm)</h3>
+                        
+                        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;width:100%;flex:1;min-height:300px;">
+                            <!-- CÁMARA 1: CENITAL -->
+                            <div style="background:rgba(0,0,0,0.3);border-radius:12px;border:1px solid var(--border);padding:12px;display:flex;flex-direction:column;gap:12px;justify-content:space-between;overflow:hidden;">
+                                <div style="font-weight:bold;font-size:0.8rem;color:var(--accent);text-transform:uppercase;letter-spacing:0.05em;border-bottom:1px solid rgba(255,255,255,0.05);padding-bottom:6px;">
+                                    📷 Cámara Cenital (Z=15cm)
+                                </div>
+                                <div style="flex:1;display:flex;align-items:center;justify-content:center;background:#000;border-radius:8px;overflow:hidden;position:relative;min-height:180px;">
+                                    <img id="multicam-img-cenital" src="" alt="Cámara Cenital" style="width:100%;height:100%;object-fit:contain;display:none;">
+                                    <div id="multicam-placeholder-cenital" style="color:var(--text-secondary);text-align:center;font-size:0.8rem;padding:10px;">
+                                        <span>Esperando render...</span>
+                                    </div>
+                                </div>
+                                <!-- Inferencia Cenital -->
+                                <div id="multicam-inf-cenital" style="background:rgba(255,255,255,0.02);border-radius:8px;padding:8px;border:1px solid rgba(255,255,255,0.05);display:none;min-height:70px;flex-direction:column;justify-content:center;">
+                                    <div style="display:flex;gap:8px;align-items:center;">
+                                        <img id="multicam-bl-cenital" src="" style="width:36px;height:36px;object-fit:contain;border-radius:4px;background:#fff;padding:2px;" alt="BL">
+                                        <div style="flex:1;overflow:hidden;">
+                                            <div id="multicam-ref-cenital" style="font-weight:bold;font-size:0.8rem;text-overflow:ellipsis;overflow:hidden;white-space:nowrap;">—</div>
+                                            <div id="multicam-score-cenital" style="font-size:0.75rem;color:#7DF9AA;font-weight:bold;">—</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- CÁMARA 2: LATERAL IZQUIERDA -->
+                            <div style="background:rgba(0,0,0,0.3);border-radius:12px;border:1px solid var(--border);padding:12px;display:flex;flex-direction:column;gap:12px;justify-content:space-between;overflow:hidden;">
+                                <div style="font-weight:bold;font-size:0.8rem;color:var(--accent);text-transform:uppercase;letter-spacing:0.05em;border-bottom:1px solid rgba(255,255,255,0.05);padding-bottom:6px;">
+                                    📷 Lateral Izquierda (X=-5, Z=15)
+                                </div>
+                                <div style="flex:1;display:flex;align-items:center;justify-content:center;background:#000;border-radius:8px;overflow:hidden;position:relative;min-height:180px;">
+                                    <img id="multicam-img-lateral-l" src="" alt="Lateral Izquierda" style="width:100%;height:100%;object-fit:contain;display:none;">
+                                    <div id="multicam-placeholder-lateral-l" style="color:var(--text-secondary);text-align:center;font-size:0.8rem;padding:10px;">
+                                        <span>Esperando render...</span>
+                                    </div>
+                                </div>
+                                <!-- Inferencia Lateral L -->
+                                <div id="multicam-inf-lateral-l" style="background:rgba(255,255,255,0.02);border-radius:8px;padding:8px;border:1px solid rgba(255,255,255,0.05);display:none;min-height:70px;flex-direction:column;justify-content:center;">
+                                    <div style="display:flex;gap:8px;align-items:center;">
+                                        <img id="multicam-bl-lateral-l" src="" style="width:36px;height:36px;object-fit:contain;border-radius:4px;background:#fff;padding:2px;" alt="BL">
+                                        <div style="flex:1;overflow:hidden;">
+                                            <div id="multicam-ref-lateral-l" style="font-weight:bold;font-size:0.8rem;text-overflow:ellipsis;overflow:hidden;white-space:nowrap;">—</div>
+                                            <div id="multicam-score-lateral-l" style="font-size:0.75rem;color:#7DF9AA;font-weight:bold;">—</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- CÁMARA 3: LATERAL DERECHA -->
+                            <div style="background:rgba(0,0,0,0.3);border-radius:12px;border:1px solid var(--border);padding:12px;display:flex;flex-direction:column;gap:12px;justify-content:space-between;overflow:hidden;">
+                                <div style="font-weight:bold;font-size:0.8rem;color:var(--accent);text-transform:uppercase;letter-spacing:0.05em;border-bottom:1px solid rgba(255,255,255,0.05);padding-bottom:6px;">
+                                    📷 Lateral Derecha (X=5, Z=15)
+                                </div>
+                                <div style="flex:1;display:flex;align-items:center;justify-content:center;background:#000;border-radius:8px;overflow:hidden;position:relative;min-height:180px;">
+                                    <img id="multicam-img-lateral-r" src="" alt="Lateral Derecha" style="width:100%;height:100%;object-fit:contain;display:none;">
+                                    <div id="multicam-placeholder-lateral-r" style="color:var(--text-secondary);text-align:center;font-size:0.8rem;padding:10px;">
+                                        <span>Esperando render...</span>
+                                    </div>
+                                </div>
+                                <!-- Inferencia Lateral R -->
+                                <div id="multicam-inf-lateral-r" style="background:rgba(255,255,255,0.02);border-radius:8px;padding:8px;border:1px solid rgba(255,255,255,0.05);display:none;min-height:70px;flex-direction:column;justify-content:center;">
+                                    <div style="display:flex;gap:8px;align-items:center;">
+                                        <img id="multicam-bl-lateral-r" src="" style="width:36px;height:36px;object-fit:contain;border-radius:4px;background:#fff;padding:2px;" alt="BL">
+                                        <div style="flex:1;overflow:hidden;">
+                                            <div id="multicam-ref-lateral-r" style="font-weight:bold;font-size:0.8rem;text-overflow:ellipsis;overflow:hidden;white-space:nowrap;">—</div>
+                                            <div id="multicam-score-lateral-r" style="font-size:0.75rem;color:#7DF9AA;font-weight:bold;">—</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="glass-panel" style="margin-top:24px;">
+                    <h3 class="panel-header">📊 Recuento e Inventario de Inferencia Multicámara</h3>
+                    <div class="inv-totals-bar" style="margin-bottom:16px;">
+                        <div class="inv-total-item set-total">
+                            <span>Precisión Media (Mean Accuracy):</span>
+                            <strong id="multicam-mean-accuracy" style="color:#7DF9AA;">0.0%</strong>
+                        </div>
+                        <div class="inv-totals-divider"></div>
+                        <div class="inv-total-item det-total" style="display:flex;flex-direction:column;align-items:flex-start;height:auto;padding:4px 0;">
+                            <span style="font-size:0.8rem;color:var(--text-secondary);">Las 3 piezas con menos precisión:</span>
+                            <span id="multicam-worst-pieces" style="font-size:0.85rem;font-weight:bold;color:#ef4444;margin-top:2px;">—</span>
+                        </div>
+                    </div>
+                    <div style="overflow-x: auto; width: 100%;">
+                        <table class="inventory-table" style="width: 100%; border-collapse: collapse; text-align: left; font-size: 0.9rem;">
+                            <thead>
+                                <tr style="border-bottom: 2px solid var(--border); color: var(--text-secondary);">
+                                    <th style="padding: 10px;">Referencia</th>
+                                    <th style="padding: 10px; text-align: center;">Imagen Catálogo</th>
+                                    <th style="padding: 10px;">Nombre / Descripción</th>
+                                    <th style="padding: 10px; text-align: center;">Cantidad Original Set</th>
+                                    <th style="padding: 10px; text-align: center;">Identificadas por Multicámara</th>
+                                    <th style="padding: 10px; text-align: center;">Tasa de Acierto (Accuracy)</th>
+                                </tr>
+                            </thead>
+                            <tbody id="multicam-inventory-tbody">
+                                <tr>
+                                    <td colspan="6" style="text-align:center; padding:20px; color:var(--text-secondary);">
+                                        Sin datos de inferencia. Genera renders y haz click en "Identificar Piezas".
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
 
             <!-- ── VISTA: BÚSQUEDA DE SETS REALES ── -->
             <section id="view-setsearch" class="page-view">
@@ -457,19 +715,32 @@
 
                 <!-- Parámetros -->
                 <div class="glass-panel">
-                    <h3 class="panel-header">Parámetros de Entrenamiento YOLO</h3>
+                    <h3 class="panel-header">Parámetros de Entrenamiento YOLO &mdash; Set 75078-1 (Imperial Troop Transport)</h3>
+                    <div style="font-size:0.82rem;color:var(--text-muted);margin-bottom:14px;">
+                        Dataset sintético generado con física real (Blender) · Proporciones LDraw reales · Domain Randomization (IOR 1.55, roughness 0.1-0.3, luces variables)
+                    </div>
                     <div class="training-params">
                         <div class="param-group">
                             <label>Épocas</label>
-                            <input type="number" id="train-epochs" value="15" min="1" max="300">
+                            <input type="number" id="train-epochs" value="50" min="1" max="300">
                         </div>
                         <div class="param-group">
                             <label>Batch Size</label>
                             <input type="number" id="train-batch" value="16" min="4" max="64">
                         </div>
                         <div class="param-group">
-                            <label>Imágenes de entrenamiento</label>
-                            <input type="number" id="train-dataset-size" value="200" min="20" max="5000">
+                            <label>Nº Imágenes</label>
+                            <input type="number" id="train-dataset-size" value="500" min="20" max="5000">
+                        </div>
+                        <div class="param-group">
+                            <label>Piezas por imagen</label>
+                            <input type="number" id="train-pieces-per-image" value="25" min="5" max="50">
+                            <div style="font-size:0.72rem;color:var(--text-muted);margin-top:4px;">Rango: ±5 (ej: 25 → 20-30 piezas)</div>
+                        </div>
+                        <div class="param-group">
+                            <label>% Imágenes sin piezas</label>
+                            <input type="number" id="train-empty-ratio" value="5" min="0" max="30">
+                            <div style="font-size:0.72rem;color:var(--text-muted);margin-top:4px;">Frames vacíos (negativos) para reducir falsos positivos</div>
                         </div>
                     </div>
                 </div>
@@ -478,37 +749,231 @@
                 <div class="glass-panel">
                     <h3 class="panel-header">Fases del Pipeline</h3>
                     <div class="training-steps">
-                        <div class="training-step" id="step-1">
+                        <div class="training-step" id="step-1" style="flex-wrap:wrap; gap:8px;">
                             <div class="step-num">1</div>
-                            <div class="step-info">
-                                <div class="step-title">Preparar Dataset Local</div>
-                                <div class="step-desc">Organiza y divide las imágenes del dataset local en carpetas train/val para YOLO.</div>
+                            <div class="step-info" style="flex:1; min-width:200px;">
+                                <div class="step-title">Preparar Dataset Local + Entrenar YOLO</div>
+                                <div class="step-desc">Organiza el dataset local y lanza entrenamiento YOLO11.</div>
+                                <div id="yolo-progress-wrap" style="display:none; margin-top:8px;">
+                                    <div style="display:flex; justify-content:space-between; font-size:0.78rem; color:var(--text-secondary); margin-bottom:4px;">
+                                        <span id="yolo-progress-label">Época 0 / 0</span>
+                                        <span id="yolo-progress-metrics" style="color:#7DF9AA;">Loss: — · mAP50: —</span>
+                                    </div>
+                                    <div style="background:rgba(255,255,255,0.08); border-radius:20px; height:8px; overflow:hidden;">
+                                        <div id="yolo-mini-bar" style="height:100%; border-radius:20px; background:linear-gradient(90deg,#00d4ff,#7DF9AA); width:0%; transition:width 0.5s ease;"></div>
+                                    </div>
+                                </div>
                             </div>
                             <span class="step-status" id="step-1-status">Pendiente</span>
                             <button class="btn btn-primary" id="btn-start-training" style="font-size:0.82rem; padding:8px 16px;">▶ Iniciar</button>
+                            <button class="btn" id="btn-stop-training" title="Detener entrenamiento YOLO en curso" style="font-size:0.82rem; padding:8px 14px; background:linear-gradient(135deg,#c0392b,#e74c3c); color:#fff; border:none; border-radius:6px; cursor:pointer; display:none; box-shadow:0 0 8px rgba(231,76,60,0.5);">⏹ Stop</button>
                         </div>
 
-                        <div class="training-step" id="step-2">
+                        <div class="training-step" id="step-2" style="flex-wrap:wrap; gap:8px;">
                             <div class="step-num">2</div>
-                            <div class="step-info">
+                            <div class="step-info" style="flex:1; min-width:200px;">
                                 <div class="step-title">Indexar Embeddings DINOv2</div>
-                                <div class="step-desc">Extrae vectores de 384 dims con ViT-S/14 a partir de las imágenes de referencia cargadas localmente. Necesario para clasificación Fase 2.</div>
+                                <div class="step-desc">Extrae vectores de 384 dims con ViT-S/14. Necesario para clasificación Fase 2.</div>
+                                <div id="dino-progress-wrap" style="display:none; margin-top:8px;">
+                                    <div style="display:flex; justify-content:space-between; font-size:0.78rem; color:var(--text-secondary); margin-bottom:4px;">
+                                        <span id="dino-progress-label">0 / 0 embeddings</span>
+                                        <span id="dino-progress-pct" style="color:#7DF9AA;">0%</span>
+                                    </div>
+                                    <div style="background:rgba(255,255,255,0.08); border-radius:20px; height:8px; overflow:hidden;">
+                                        <div id="dino-mini-bar" style="height:100%; border-radius:20px; background:linear-gradient(90deg,#a78bfa,#7DF9AA); width:0%; transition:width 0.5s ease;"></div>
+                                    </div>
+                                    <div id="dino-progress-file" style="font-size:0.72rem; color:var(--text-muted); margin-top:4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:300px;"></div>
+                                </div>
                             </div>
                             <span class="step-status" id="step-2-status">Pendiente</span>
                             <button class="btn btn-secondary" id="btn-start-indexing" style="font-size:0.82rem; padding:8px 16px;">▶ Indexar</button>
+                            <button class="btn" id="btn-stop-indexing" title="Detener indexacion DINOv2 en curso" style="font-size:0.82rem; padding:8px 14px; background:linear-gradient(135deg,#c0392b,#e74c3c); color:#fff; border:none; border-radius:6px; cursor:pointer; display:none; box-shadow:0 0 8px rgba(231,76,60,0.5);">⏹ Stop</button>
                         </div>
 
-                        <div class="training-step" id="step-3">
+                        <div class="training-step" id="step-3" style="flex-wrap:wrap; gap:8px;">
                             <div class="step-num">3</div>
-                            <div class="step-info">
-                                <div class="step-title">Estadísticas de Embeddings</div>
-                                <div class="step-desc">Vectores de referencia almacenados en BD local (PostgreSQL). Usados para similitud coseno en inferencia.</div>
+                            <div class="step-info" style="flex:1; min-width:200px;">
+                                <div class="step-title">Estadísticas y Actualización de Embeddings</div>
+                                <div class="step-desc">Vectores de referencia en PostgreSQL. Usados para similitud coseno en inferencia.</div>
+                                <div id="dino-fov-progress-wrap" style="display:none; margin-top:8px;">
+                                    <div style="display:flex; justify-content:space-between; font-size:0.78rem; color:var(--text-secondary); margin-bottom:4px;">
+                                        <span id="dino-fov-progress-label">Fase: Iniciando...</span>
+                                        <span id="dino-fov-progress-pct" style="color:#7DF9AA;">0%</span>
+                                    </div>
+                                    <div style="background:rgba(255,255,255,0.08); border-radius:20px; height:8px; overflow:hidden;">
+                                        <div id="dino-fov-mini-bar" style="height:100%; border-radius:20px; background:linear-gradient(90deg,#a78bfa,#38bdf8); width:0%; transition:width 0.5s ease;"></div>
+                                    </div>
+                                    <div id="dino-fov-progress-file" style="font-size:0.72rem; color:var(--text-muted); margin-top:4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:300px;"></div>
+                                </div>
                             </div>
                             <span class="step-status" id="step-3-status">0 embeddings</span>
                             <button class="btn btn-secondary" id="btn-refresh-embeddings" style="font-size:0.82rem; padding:8px 16px;">↻ Actualizar</button>
+                            <button class="btn" id="btn-stop-dino-fov" title="Detener simulación DINOv2 en curso" style="font-size:0.82rem; padding:8px 14px; background:linear-gradient(135deg,#c0392b,#e74c3c); color:#fff; border:none; border-radius:6px; cursor:pointer; display:none; box-shadow:0 0 8px rgba(231,76,60,0.5);">⏹ Stop</button>
+                        </div>
+
+                        <div class="training-step" id="step-4" style="flex-wrap:wrap; gap:8px;">
+                            <div class="step-num">4</div>
+                            <div class="step-info" style="flex:1; min-width:200px;">
+                                <div class="step-title">Validación de posiciones estables set 75078-1</div>
+                                <div class="step-desc">Lanza X simulaciones físicas por pieza para detectar caras estables empíricas y contrastar discrepancias con la base de datos.</div>
+                                <div style="display:flex; align-items:center; gap:8px; margin-top:8px;">
+                                    <label for="validation-runs" style="font-size:0.78rem; color:var(--text-secondary);">Simulaciones por pieza (X):</label>
+                                    <input type="number" id="validation-runs" value="20" min="1" max="100" style="width:60px; padding:4px 8px; border-radius:6px; border:1px solid rgba(255,255,255,0.15); background:rgba(0,0,0,0.3); color:#fff; font-size:0.82rem;">
+                                </div>
+                                <div id="validation-progress-wrap" style="display:none; margin-top:10px;">
+                                    <div style="display:flex; justify-content:space-between; font-size:0.78rem; color:var(--text-secondary); margin-bottom:4px;">
+                                        <span id="validation-progress-label">Pieza 0 / 0</span>
+                                        <span id="validation-progress-pct" style="color:#7DF9AA;">0%</span>
+                                    </div>
+                                    <div style="background:rgba(255,255,255,0.08); border-radius:20px; height:8px; overflow:hidden;">
+                                        <div id="validation-mini-bar" style="height:100%; border-radius:20px; background:linear-gradient(90deg,#ff8008,#ffc837); width:0%; transition:width 0.5s ease;"></div>
+                                    </div>
+                                    <div id="validation-progress-file" style="font-size:0.72rem; color:var(--text-muted); margin-top:6px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:300px;"></div>
+                                </div>
+                            </div>
+                            <span class="step-status" id="step-4-status">Pendiente</span>
+                            <button class="btn btn-primary" id="btn-start-validation" style="font-size:0.82rem; padding:8px 16px;">▶ Validar</button>
+                            <button class="btn" id="btn-stop-validation" title="Detener validación en curso" style="font-size:0.82rem; padding:8px 14px; background:linear-gradient(135deg,#c0392b,#e74c3c); color:#fff; border:none; border-radius:6px; cursor:pointer; display:none; box-shadow:0 0 8px rgba(231,76,60,0.5);">⏹ Stop</button>
+                            <button class="btn" id="btn-export-excel" title="Exportar Excel comparativo de posiciones estables" style="font-size:0.82rem; padding:8px 14px; background:linear-gradient(135deg,#1a7a2e,#27ae60); color:#fff; border:none; border-radius:6px; cursor:pointer; display:none; box-shadow:0 0 8px rgba(39,174,96,0.4);">📊 Exportar Excel</button>
+                            <button class="btn" id="btn-open-excel" title="Abrir el Excel generado" style="font-size:0.82rem; padding:8px 14px; background:linear-gradient(135deg,#1a5276,#2980b9); color:#fff; border:none; border-radius:6px; cursor:pointer; display:none;">📂 Abrir Excel</button>
+                            <div id="excel-status-msg" style="font-size:0.75rem; color:#7DF9AA; margin-top:6px; display:none;"></div>
+                        </div>
+
+                        <!-- Paso 5: Detector Mono Pieza -->
+                        <div class="training-step" id="step-5" style="flex-wrap:wrap; gap:16px; align-items: flex-start; padding: 20px; border-left: 4px solid var(--accent); background: rgba(30,41,59,0.3); border-radius: 8px; margin-top: 14px;">
+                            <div class="step-num" style="background: linear-gradient(135deg, var(--accent), #7DF9AA); box-shadow: 0 0 10px rgba(0,212,255,0.4);">5</div>
+                            <div class="step-info" style="flex:1; min-width:280px;">
+                                <div class="step-title" style="font-size:1.05rem; font-weight:bold; color:#fff; display:flex; align-items:center; gap:8px;">
+                                    <span>Paso 5: Detector Mono Pieza & Inferencia Multicámara</span>
+                                    <span class="piece-conf high" style="font-size:0.68rem; padding:2px 8px; border-radius:12px; background:rgba(0,255,136,0.15); color:#00ff88; border:1px solid rgba(0,255,136,0.3);">Configuración Activa</span>
+                                </div>
+                                <div class="step-desc" style="color:var(--text-secondary); font-size:0.85rem; margin-top:8px; line-height:1.45;">
+                                    Este módulo detalla los procesos de entrenamiento especializados y técnicas de fusión multicámara optimizados para el chipset <strong>Apple Silicon M4</strong> (10 cores, 48GB unified RAM).
+                                </div>
+                                
+                                <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap:16px; margin-top:16px;">
+                                    <!-- 1. YOLO Cenital -->
+                                    <div style="background:rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.05); border-radius:10px; padding:16px; display:flex; flex-direction:column; justify-content:space-between; gap:16px;">
+                                        <div>
+                                            <span style="font-weight:bold; color:var(--accent); font-size:0.9rem;">📷 YOLO Cenital</span>
+                                            <p style="font-size:0.78rem; color:var(--text-muted); margin:8px 0 0 0; line-height:1.4;">
+                                                Cámara cenital en perspectiva (PERSP) a 15 cm de altura con zoom de 50% (focal de 52.5mm). Simula dos carriles laterales de aluminio mate de 2mm paralelos a los límites de la cinta.
+                                            </p>
+                                        </div>
+                                        
+                                        <!-- Renders -->
+                                        <div style="border-top:1px solid rgba(255,255,255,0.05); padding-top:10px; display:flex; flex-direction:column; gap:8px;">
+                                            <div style="display:flex; justify-content:space-between; align-items:center;">
+                                                <span style="font-size:0.75rem; font-weight:bold; color:#fff;">1. Generar Renders</span>
+                                                <span id="status-yolo-cenital-render" class="piece-conf low" style="font-size:0.65rem; padding:2px 6px; border-radius:10px; background:rgba(239,68,68,0.15); color:#ef4444; border:1px solid rgba(239,68,68,0.3);">Pendiente</span>
+                                            </div>
+                                            <span style="font-size:0.7rem; color:var(--text-muted);">U.T.: <strong id="time-yolo-cenital-render">—</strong></span>
+                                            <div style="display:flex; justify-content:space-between; align-items:center;">
+                                                <button class="btn btn-primary" id="btn-render-yolo-cenital-render" style="font-size:0.75rem; padding:4px 10px;">Generar renders</button>
+                                                <a href="#" class="open-specs-link" style="font-size:0.75rem; color:#38bdf8; text-decoration:underline;">Setup y logs</a>
+                                            </div>
+                                        </div>
+                                        
+                                        <!-- Train -->
+                                        <div style="border-top:1px solid rgba(255,255,255,0.05); padding-top:10px; display:flex; flex-direction:column; gap:8px;">
+                                            <div style="display:flex; justify-content:space-between; align-items:center;">
+                                                <span style="font-size:0.75rem; font-weight:bold; color:#fff;">2. Entrenar Modelo</span>
+                                                <span id="status-yolo-cenital-train" class="piece-conf low" style="font-size:0.65rem; padding:2px 6px; border-radius:10px; background:rgba(239,68,68,0.15); color:#ef4444; border:1px solid rgba(239,68,68,0.3);">Pendiente</span>
+                                            </div>
+                                            <span style="font-size:0.7rem; color:var(--text-muted);">U.T.: <strong id="time-yolo-cenital-train">—</strong></span>
+                                            <div style="display:flex; justify-content:space-between; align-items:center;">
+                                                <button class="btn btn-primary" id="btn-render-yolo-cenital-train" style="font-size:0.75rem; padding:4px 10px;">Entrenar modelo</button>
+                                                <a href="#" class="open-specs-link" style="font-size:0.75rem; color:#38bdf8; text-decoration:underline;">Setup y logs</a>
+                                            </div>
+                                        </div>
+                                    </div>
+ 
+                                    <!-- 2. YOLO Lateral -->
+                                    <div style="background:rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.05); border-radius:10px; padding:16px; display:flex; flex-direction:column; justify-content:space-between; gap:16px;">
+                                        <div>
+                                            <span style="font-weight:bold; color:#7DF9AA; font-size:0.9rem;">📐 YOLO Lateral</span>
+                                            <p style="font-size:0.78rem; color:var(--text-muted); margin:8px 0 0 0; line-height:1.4;">
+                                                Cámara lateral en perspectiva (PERSP) a 15 cm de distancia con zoom de 50% (focal de 52.5mm) a izquierda o derecha. Simula dos carriles laterales de aluminio mate de 2mm paralelos a la cinta.
+                                            </p>
+                                        </div>
+                                        
+                                        <!-- Renders -->
+                                        <div style="border-top:1px solid rgba(255,255,255,0.05); padding-top:10px; display:flex; flex-direction:column; gap:8px;">
+                                            <div style="display:flex; justify-content:space-between; align-items:center;">
+                                                <span style="font-size:0.75rem; font-weight:bold; color:#fff;">1. Generar Renders</span>
+                                                <span id="status-yolo-lateral-render" class="piece-conf low" style="font-size:0.65rem; padding:2px 6px; border-radius:10px; background:rgba(239,68,68,0.15); color:#ef4444; border:1px solid rgba(239,68,68,0.3);">Pendiente</span>
+                                            </div>
+                                            <span style="font-size:0.7rem; color:var(--text-muted);">U.T.: <strong id="time-yolo-lateral-render">—</strong></span>
+                                            <div style="display:flex; justify-content:space-between; align-items:center;">
+                                                <button class="btn btn-primary" id="btn-render-yolo-lateral-render" style="font-size:0.75rem; padding:4px 10px;">Generar renders</button>
+                                                <a href="#" class="open-specs-link" style="font-size:0.75rem; color:#38bdf8; text-decoration:underline;">Setup y logs</a>
+                                            </div>
+                                        </div>
+                                        
+                                        <!-- Train -->
+                                        <div style="border-top:1px solid rgba(255,255,255,0.05); padding-top:10px; display:flex; flex-direction:column; gap:8px;">
+                                            <div style="display:flex; justify-content:space-between; align-items:center;">
+                                                <span style="font-size:0.75rem; font-weight:bold; color:#fff;">2. Entrenar Modelo</span>
+                                                <span id="status-yolo-lateral-train" class="piece-conf low" style="font-size:0.65rem; padding:2px 6px; border-radius:10px; background:rgba(239,68,68,0.15); color:#ef4444; border:1px solid rgba(239,68,68,0.3);">Pendiente</span>
+                                            </div>
+                                            <span style="font-size:0.7rem; color:var(--text-muted);">U.T.: <strong id="time-yolo-lateral-train">—</strong></span>
+                                            <div style="display:flex; justify-content:space-between; align-items:center;">
+                                                <button class="btn btn-primary" id="btn-render-yolo-lateral-train" style="font-size:0.75rem; padding:4px 10px;">Entrenar modelo</button>
+                                                <a href="#" class="open-specs-link" style="font-size:0.75rem; color:#38bdf8; text-decoration:underline;">Setup y logs</a>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- 3. DINOv2 Cenital -->
+                                    <div style="background:rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.05); border-radius:10px; padding:16px; display:flex; flex-direction:column; justify-content:space-between; gap:12px;">
+                                        <div>
+                                            <div style="display:flex; justify-content:space-between; align-items:center;">
+                                                <span style="font-weight:bold; color:#a78bfa; font-size:0.9rem;">🧬 DINOv2 Cenital</span>
+                                                <span id="status-dinov2-cenital" class="piece-conf low" style="font-size:0.7rem; padding:2px 8px; border-radius:12px; background:rgba(239,68,68,0.15); color:#ef4444; border:1px solid rgba(239,68,68,0.3);">Pendiente</span>
+                                            </div>
+                                            <p style="font-size:0.78rem; color:var(--text-muted); margin:8px 0 0 0; line-height:1.4;">
+                                                Indexación de embeddings cenitales. Cámara en perspectiva (PERSP) a 15 cm de altura con zoom de 50% (focal de 52.5mm). Genera 24 renders por pose en pasos de 15º.
+                                            </p>
+                                        </div>
+                                        <div style="display:flex; flex-direction:column; gap:8px; border-top:1px solid rgba(255,255,255,0.05); padding-top:10px;">
+                                            <span style="font-size:0.7rem; color:var(--text-muted);">U.T.: <strong id="time-dinov2-cenital">—</strong></span>
+                                            <div style="display:flex; justify-content:space-between; align-items:center;">
+                                                <button class="btn btn-secondary" id="btn-render-dinov2-cenital" style="font-size:0.75rem; padding:6px 12px;">Generar renders</button>
+                                                <a href="#" class="open-specs-link" style="font-size:0.75rem; color:#38bdf8; text-decoration:underline;">Setup y logs</a>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- 4. DINOv2 Lateral -->
+                                    <div style="background:rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.05); border-radius:10px; padding:16px; display:flex; flex-direction:column; justify-content:space-between; gap:12px;">
+                                        <div>
+                                            <div style="display:flex; justify-content:space-between; align-items:center;">
+                                                <span style="font-weight:bold; color:#ff8008; font-size:0.9rem;">🔍 DINOv2 Lateral</span>
+                                                <span id="status-dinov2-lateral" class="piece-conf low" style="font-size:0.7rem; padding:2px 8px; border-radius:12px; background:rgba(239,68,68,0.15); color:#ef4444; border:1px solid rgba(239,68,68,0.3);">Pendiente</span>
+                                            </div>
+                                            <p style="font-size:0.78rem; color:var(--text-muted); margin:8px 0 0 0; line-height:1.4;">
+                                                Indexación de embeddings laterales. Cámara en perspectiva (PERSP) a 15 cm con zoom de 50% (focal de 52.5mm) izquierda/derecha. Genera 24 renders por pose en pasos de 15º.
+                                            </p>
+                                        </div>
+                                        <div style="display:flex; flex-direction:column; gap:8px; border-top:1px solid rgba(255,255,255,0.05); padding-top:10px;">
+                                            <span style="font-size:0.7rem; color:var(--text-muted);">U.T.: <strong id="time-dinov2-lateral">—</strong></span>
+                                            <div style="display:flex; justify-content:space-between; align-items:center;">
+                                                <button class="btn btn-secondary" id="btn-render-dinov2-lateral" style="font-size:0.75rem; padding:6px 12px;">Generar renders</button>
+                                                <a href="#" class="open-specs-link" style="font-size:0.75rem; color:#38bdf8; text-decoration:underline;">Setup y logs</a>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <div style="background:rgba(56,189,248,0.06); border:1px solid rgba(56,189,248,0.15); border-radius:8px; padding:10px 14px; margin-top:12px; font-size:0.78rem; color:#38bdf8; display:flex; align-items:center; gap:8px;">
+                                    <span>⚡</span>
+                                    <span><strong>Optimización macOS M4:</strong> Ejecutando paralelización en 8 cores CPU (20% libre), renderizado en Cycles Metal GPU fijos a 4 hilos, y vaciado proactivo de memoria VRAM unificada mediante <code>torch.mps.empty_cache()</code>.</span>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
+
 
                 <!-- Progreso de entrenamiento -->
                 <div class="glass-panel" id="training-progress-panel">
@@ -523,6 +988,120 @@
                         </div>
                     </div>
                     <canvas id="training-chart"></canvas>
+                </div>
+
+                <!-- Panel de Evaluación Post-Entrenamiento (Opción C) -->
+                <div class="glass-panel" id="eval-results-panel">
+                    <h3 class="panel-header" style="display:flex; justify-content:space-between; align-items:center;">
+                        <span>🧪 Evaluación en Simulación Física (Opción C)</span>
+                        <button class="btn btn-secondary" id="btn-refresh-eval" style="font-size:0.72rem; padding:4px 10px;">↻ Actualizar</button>
+                    </h3>
+                    <div style="font-size:0.8rem; color:var(--text-muted); margin-bottom:12px;">
+                        Evaluación automática post-entrenamiento sobre la imagen fotorrealista generada por <strong>⚡ Simular Set Completo</strong>. Ground truth: bboxes del JSON de física.
+                    </div>
+
+                    <!-- Estado: sin datos -->
+                    <div id="eval-no-data" style="text-align:center; padding:24px; color:var(--text-secondary); font-size:0.9rem;">
+                        <span style="font-size:2rem; display:block; margin-bottom:8px;">📊</span>
+                        Sin evaluación disponible. Genera la simulación del set (⚡) y luego entrena el modelo.
+                    </div>
+
+                    <!-- Métricas principales -->
+                    <div id="eval-metrics-wrap" style="display:none;">
+                        <div style="display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:16px;">
+                            <div class="metric-card" style="padding:12px;">
+                                <span class="metric-label" style="font-size:0.72rem;">Precision</span>
+                                <span id="eval-precision" class="metric-value" style="font-size:1.4rem;">—</span>
+                            </div>
+                            <div class="metric-card" style="padding:12px;">
+                                <span class="metric-label" style="font-size:0.72rem;">Recall</span>
+                                <span id="eval-recall" class="metric-value" style="font-size:1.4rem;">—</span>
+                            </div>
+                            <div class="metric-card" style="padding:12px;">
+                                <span class="metric-label" style="font-size:0.72rem;">F1 Score</span>
+                                <span id="eval-f1" class="metric-value" style="font-size:1.4rem;">—</span>
+                            </div>
+                            <div class="metric-card" style="padding:12px;">
+                                <span class="metric-label" style="font-size:0.72rem;">mAP@0.5 est.</span>
+                                <span id="eval-map50" class="metric-value" style="font-size:1.4rem; color:var(--accent);">—</span>
+                            </div>
+                        </div>
+
+                        <!-- Barra visual mAP50 -->
+                        <div style="margin-bottom:16px;">
+                            <div style="display:flex; justify-content:space-between; font-size:0.78rem; color:var(--text-secondary); margin-bottom:4px;">
+                                <span>mAP@0.5 (estimado, single-class)</span>
+                                <span id="eval-map50-pct" style="color:#7DF9AA;">0%</span>
+                            </div>
+                            <div style="background:rgba(255,255,255,0.08); border-radius:20px; height:10px; overflow:hidden;">
+                                <div id="eval-map50-bar" style="height:100%; border-radius:20px; background:linear-gradient(90deg,#f59e0b,#10b981); width:0%; transition:width 0.7s ease;"></div>
+                            </div>
+                        </div>
+
+                        <!-- Detalle TP / FP / FN -->
+                        <div style="display:flex; gap:16px; margin-bottom:16px; font-size:0.85rem; flex-wrap:wrap;">
+                            <div style="background:rgba(16,185,129,0.15); border:1px solid rgba(16,185,129,0.3); border-radius:8px; padding:8px 16px; flex:1; min-width:80px; text-align:center;">
+                                <div style="color:#10b981; font-weight:bold; font-size:1.1rem;" id="eval-tp">—</div>
+                                <div style="color:var(--text-secondary); font-size:0.72rem;">True Pos.</div>
+                            </div>
+                            <div style="background:rgba(239,68,68,0.15); border:1px solid rgba(239,68,68,0.3); border-radius:8px; padding:8px 16px; flex:1; min-width:80px; text-align:center;">
+                                <div style="color:#ef4444; font-weight:bold; font-size:1.1rem;" id="eval-fp">—</div>
+                                <div style="color:var(--text-secondary); font-size:0.72rem;">False Pos.</div>
+                            </div>
+                            <div style="background:rgba(245,158,11,0.15); border:1px solid rgba(245,158,11,0.3); border-radius:8px; padding:8px 16px; flex:1; min-width:80px; text-align:center;">
+                                <div style="color:#f59e0b; font-weight:bold; font-size:1.1rem;" id="eval-fn">—</div>
+                                <div style="color:var(--text-secondary); font-size:0.72rem;">False Neg.</div>
+                            </div>
+                            <div style="background:rgba(99,102,241,0.15); border:1px solid rgba(99,102,241,0.3); border-radius:8px; padding:8px 16px; flex:1; min-width:80px; text-align:center;">
+                                <div style="color:#818cf8; font-weight:bold; font-size:1.1rem;" id="eval-gt">—</div>
+                                <div style="color:var(--text-secondary); font-size:0.72rem;">GT piezas</div>
+                            </div>
+                            <div style="background:rgba(56,189,248,0.15); border:1px solid rgba(56,189,248,0.3); border-radius:8px; padding:8px 16px; flex:1; min-width:80px; text-align:center;">
+                                <div style="color:#38bdf8; font-weight:bold; font-size:1.1rem;" id="eval-dets">—</div>
+                                <div style="color:var(--text-secondary); font-size:0.72rem;">Detectadas</div>
+                            </div>
+                        </div>
+
+                        <!-- Tabla per-piece recall -->
+                        <div>
+                            <div style="font-size:0.82rem; font-weight:600; color:#fff; margin-bottom:6px;">Recall por tipo de pieza (top detectadas)</div>
+                            <div id="eval-per-piece-table" style="max-height:180px; overflow-y:auto; font-size:0.8rem;">
+                                <!-- Se rellena dinámicamente -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Panel de Validación de Estabilidad (Fase 4) -->
+                <div class="glass-panel" id="stability-validation-panel" style="display:none; margin-bottom: 20px;">
+                    <h3 class="panel-header" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+                        <span>📋 Reporte de Discrepancias de Estabilidad (Set 75078-1)</span>
+                        <span id="validation-summary-badge" class="piece-conf high">0 Discrepancias</span>
+                    </h3>
+                    <div style="font-size:0.8rem; color:var(--text-muted); margin-bottom:16px; line-height:1.4;">
+                        Contraste entre las posiciones estables identificadas empíricamente (simulaciones físicas) y las registradas teóricamente en la base de datos.
+                    </div>
+
+                    <!-- Tabla de discrepancias -->
+                    <div style="overflow-x:auto;">
+                        <table class="inventory-table" style="width:100%; border-collapse:collapse; font-size:0.82rem; text-align:left;">
+                            <thead>
+                                <tr style="border-bottom:1px solid rgba(255,255,255,0.1); color:var(--text-secondary);">
+                                    <th style="padding:10px 8px;">Pieza (Ref)</th>
+                                    <th style="padding:10px 8px;">Nombre</th>
+                                    <th style="padding:10px 8px; text-align:center;">Poses Exp.</th>
+                                    <th style="padding:10px 8px;">Caras Exp.</th>
+                                    <th style="padding:10px 8px;">Caras BD</th>
+                                    <th style="padding:10px 8px; color:#ef4444;">Faltan en BD</th>
+                                    <th style="padding:10px 8px; color:#f59e0b;">Sobran en BD</th>
+                                    <th style="padding:10px 8px; text-align:center;">Estado</th>
+                                </tr>
+                            </thead>
+                            <tbody id="stability-validation-table-body">
+                                <!-- Se rellena dinámicamente -->
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
 
                 <!-- Terminal de logs -->
@@ -618,36 +1197,21 @@
 
                 <!-- Formulario de Configuración de la Caída -->
                 <div class="glass-panel" style="flex-direction:row; gap:16px; align-items:flex-end; flex-wrap: wrap;">
-                    <div class="config-group" style="flex: 1.5; min-width: 200px; margin-bottom:0;">
-                        <label for="physics-part-select">Selecciona una Referencia LEGO</label>
+                    <div class="config-group" style="flex: 2; min-width: 250px; margin-bottom:0;">
+                        <label for="physics-part-select">Selecciona una Referencia LEGO (Set 75078-1)</label>
                         <select id="physics-part-select" style="width:100%; background:rgba(30,41,59,0.7); border:1px solid var(--border); border-radius:6px; color:#fff; padding:8px 12px; font-family:Outfit,sans-serif; font-size:0.9rem; outline:none;">
-                            <option value="3004">3004 - Brick 1x2 (Gris)</option>
-                            <option value="3022">3022 - Plate 2x2 (Gris)</option>
-                            <option value="3710">3710 - Plate 1x4 (Gris)</option>
-                            <option value="3020" selected>3020 - Plate 2x4 (Gris)</option>
-                            <option value="11477">11477 - Slope Curved 2x1 (Gris)</option>
-                            <option value="59900">59900 - Cone 1x1 (Rojo)</option>
-                            <option value="3068">3068 - Tile 2x2 (Gris)</option>
-                            <option value="2877">2877 - Brick 1x2 Grille (Negro)</option>
-                            <option value="sw0614">sw0614 - Stormtrooper Rebels (Blanco)</option>
+                            <!-- Populated dynamically via JS -->
                         </select>
                     </div>
-                    <div class="config-group" style="flex: 1; min-width: 150px; margin-bottom:0;">
-                        <label for="physics-color-select">Color de la Pieza</label>
-                        <select id="physics-color-select" style="width:100%; background:rgba(30,41,59,0.7); border:1px solid var(--border); border-radius:6px; color:#fff; padding:8px 12px; font-family:Outfit,sans-serif; font-size:0.9rem; outline:none;">
-                            <option value="#A0A5A9">Medium Stone Gray (Gris)</option>
-                            <option value="#FFFFFF">White (Blanco)</option>
-                            <option value="#1B1B1B">Black (Negro)</option>
-                            <option value="#C91A09" selected>Red (Rojo)</option>
-                            <option value="#1C6DCD">Blue (Azul)</option>
-                            <option value="#F2CD37">Yellow (Amarillo)</option>
-                            <option value="#FE8A18">Orange (Naranja)</option>
-                            <option value="#257A3E">Green (Verde)</option>
+                    <div class="config-group" style="flex: 1.2; min-width: 180px; margin-bottom:0;">
+                        <label for="physics-color-select">Color Asociado</label>
+                        <select id="physics-color-select" disabled style="width:100%; background:rgba(15,23,42,0.6); border:1px solid var(--border); border-radius:6px; color:#94a3b8; padding:8px 12px; font-family:Outfit,sans-serif; font-size:0.9rem; outline:none; cursor: not-allowed;">
+                            <!-- Populated and disabled dynamically via JS -->
                         </select>
                     </div>
-                    <div class="config-group" style="flex: 1; min-width: 150px; margin-bottom:0;">
-                        <label for="physics-part-custom">O escribe Referencia Manual</label>
-                        <input type="text" id="physics-part-custom" placeholder="Ej. 3001" style="width:100%; background:rgba(30,41,59,0.7); border:1px solid var(--border); border-radius:8px; color:#fff; padding:8px; font-family:inherit;">
+                    <div class="config-group" style="flex: 1; min-width: 120px; margin-bottom:0;">
+                        <label for="physics-simulations">Nº de Simulaciones</label>
+                        <input type="number" id="physics-simulations" min="1" max="100" value="15" style="width:100%; background:rgba(30,41,59,0.7); border:1px solid var(--border); border-radius:8px; color:#fff; padding:8px; font-family:inherit; font-size:0.9rem; outline:none;">
                     </div>
                     <button id="btn-simulate-physics" class="btn btn-primary" style="height:42px;">⚡ Simular Caída y Renderizar</button>
                 </div>
@@ -675,58 +1239,53 @@
                     </div>
                 </div>
 
-                <!-- Carrusel de Acercamientos (Zoom 5x5 cm) -->
+                <!-- Carrusel de Acercamientos (Zoom 5x5 cm) — layout vertical con slider -->
                 <div class="glass-panel" id="physics-carousel-panel" style="display:flex; flex-direction:column; gap:12px; width: 100%;">
-                    <h3 class="panel-header">Validación de Estabilidad (Cámara a Z=10 cm sobre cada pieza)</h3>
-                    <div id="physics-carousel-track" style="display:flex; gap:16px; overflow-x:auto; padding:12px 0; width: 100%; scrollbar-width: thin;">
-                        <div id="physics-carousel-placeholder" style="color:var(--text-secondary); text-align:center; padding:40px; width: 100%;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; border-bottom: 1px solid var(--border); padding-bottom: 8px; margin-bottom: 8px;">
+                        <h3 class="panel-header" style="margin: 0; border: none; padding-bottom: 0;">Validación de Estabilidad — Nº Rotaciones × Pieza</h3>
+                        <div id="physics-time-stats" style="display: none; align-items: center; gap: 16px; background: rgba(30, 41, 59, 0.6); padding: 6px 12px; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.08); font-size: 0.85rem; font-family: Outfit, sans-serif;">
+                            <span style="color: var(--text-secondary);">⏱️ Física: <strong id="physics-time-total" style="color: #7df9aa;">—</strong> (<span id="physics-time-per-piece">—</span>/pza)</span>
+                            <span style="color: var(--text-secondary);">📷 Render: <strong id="render-time-total" style="color: #38bdf8;">—</strong> (<span id="render-time-per-piece">—</span>/pza)</span>
+                        </div>
+                    </div>
+                    <!-- Contenedor con slider vertical: imagen centrada + control de rotación -->
+                    <div style="display:flex; gap:16px; align-items:flex-start; width:100%;">
+                        <!-- Slider vertical de navegación -->
+                        <div id="physics-slider-wrap" style="display:none; flex-direction:column; align-items:center; gap:8px; padding:8px 0;">
+                            <span style="font-size:0.7rem; color:var(--text-secondary); writing-mode:vertical-rl; text-orientation:mixed; letter-spacing:1px; text-transform:uppercase;">ROT</span>
+                            <input type="range" id="physics-rotation-slider" min="0" max="0" value="0"
+                                orient="vertical"
+                                style="writing-mode:vertical-lr; direction:rtl; -webkit-appearance:slider-vertical; appearance:auto; width:24px; height:260px; cursor:pointer; accent-color:var(--accent);">
+                            <span id="physics-slider-label" style="font-size:0.72rem; color:var(--accent); font-weight:600;">1/1</span>
+                        </div>
+                        <!-- Imagen activa centrada en el box -->
+                        <div id="physics-carousel-active" style="display:none; flex:1; flex-direction:column; align-items:center; justify-content:center; gap:12px; background:rgba(0,0,0,0.25); border-radius:16px; border:1px solid var(--border); padding:20px; min-height:300px;">
+                            <img id="physics-carousel-active-img" src="" alt="Rotación activa" style="max-width:100%; max-height:280px; object-fit:contain; border-radius:8px;">
+                            <span id="physics-carousel-active-label" style="font-size:0.8rem; color:var(--text-secondary);"></span>
+                        </div>
+                        <!-- Placeholder cuando no hay datos -->
+                        <div id="physics-carousel-placeholder" style="flex:1; color:var(--text-secondary); text-align:center; padding:40px; display:flex; flex-direction:column; align-items:center; justify-content:center; background:rgba(0,0,0,0.15); border-radius:16px; border:1px dashed var(--border); min-height:200px;">
                             <span style="font-size: 3rem; display: block; margin-bottom: 12px;">📐</span>
                             Selecciona una pieza y haz click en "Simular Caída y Renderizar" para iniciar la simulación de caídas estables.
                         </div>
                     </div>
+                    <!-- Miniaturas de todas las rotaciones (ocultas, usadas por JS) -->
+                    <div id="physics-carousel-track" style="display:none; flex-wrap:wrap; gap:8px; justify-content:center; padding:8px 0; width:100%;">
+                    </div>
                 </div>
 
                 <!-- Panel Inferior: Explicación Técnica Interactiva -->
-                <div class="glass-panel" style="width: 100%;">
-                    <h3 class="panel-header">¿Cómo funciona la estabilización física 3D?</h3>
-                    <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap:20px; font-size:0.9rem; line-height:1.5; color:var(--text-primary);">
-                        <div style="background: rgba(255, 255, 255, 0.02); border-left: 3px solid var(--accent); padding: 16px; border-radius: 8px;">
-                            <h4 style="font-weight:600; color:#fff; margin-bottom:6px; font-size:0.9rem;">Paso 1: Entorno de Físicas Gravedatorias</h4>
-                            <p style="color:var(--text-secondary); font-size:0.85rem;">
-                                Se inicializa un resolvedor rígido en Blender con gravedad de $-9.81\text{ m/s}^2$. La cinta transportadora se modela como un colisionador de caja sólida a $Z=0$ con fricción de $0.8$ y rebote bajo de $0.05$ con **margen de colisión nulo ($0.0$)** para un contacto perfecto de las piezas con la superficie.
-                            </p>
-                        </div>
 
-                        <div style="background: rgba(255, 255, 255, 0.02); border-left: 3px solid var(--accent); padding: 16px; border-radius: 8px;">
-                            <h4 style="font-weight:600; color:#fff; margin-bottom:6px; font-size:0.9rem;">Paso 2: Generación en Cuadrícula y Dispersión</h4>
-                            <p style="color:var(--text-secondary); font-size:0.85rem;">
-                                Para evitar solapamientos imposibles, las 15 piezas se sitúan en una rejilla aleatoria de $4\times4$. Cada una recibe una traslación caótica en $X$ e $Y$ de $\pm 0.5\text{ cm}$, una altura de caída inicial real de **$10\text{ cm}$** ($10.0$ unidades en Blender) y una rotación 3D completamente aleatoria.
-                            </p>
-                        </div>
-
-                        <div style="background: rgba(255, 255, 255, 0.02); border-left: 3px solid var(--accent); padding: 16px; border-radius: 8px;">
-                            <h4 style="font-weight:600; color:#fff; margin-bottom:6px; font-size:0.9rem;">Paso 3: Simulación de Caída Libre y Colisión</h4>
-                            <p style="color:var(--text-secondary); font-size:0.85rem;">
-                                Se corre el resolvedor físico durante **35 fotogramas**. Las piezas caen de forma realista e impactan la superficie casi de inmediato. Se anula el margen de colisión interno de los clones a $0.0$ para evitar que las mallas queden flotando sobre la cinta o suspendidas entre sí.
-                            </p>
-                        </div>
-
-                        <div style="background: rgba(255, 255, 255, 0.02); border-left: 3px solid var(--accent); padding: 16px; border-radius: 8px;">
-                            <h4 style="font-weight:600; color:#fff; margin-bottom:6px; font-size:0.9rem;">Paso 4: Congelado y Render Cenital a Z=35</h4>
-                            <p style="color:var(--text-secondary); font-size:0.85rem;">
-                                Al finalizar en el fotograma 35, se aplica la matriz de transformación visual y se inactivan las dinámicas. Se efectúa el renderizado en Cycles congelado en este frame final. Luego, se proyectan las coordenadas 3D al plano 2D de la cámara cenital ($Z=37\text{ cm}$) para recortar y validar la estabilidad individual 1:1.
-                            </p>
-                        </div>
-                    </div>
-                </div>
             </section>
         </main>
     </div>
     
-    <script src="js/app.js"></script>
+    <script src="js/app.js?v=1.0.1"></script>
     <script src="js/detection_patch.js"></script>
     <script src="js/inventory_logic.js"></script>
     <script src="js/minifigures.js"></script>
     <script src="js/physics_logic.js"></script>
+    <script src="js/physics_belt_live.js"></script>
+    <script src="js/phys_belt_integration.js"></script>
 </body>
 </html>

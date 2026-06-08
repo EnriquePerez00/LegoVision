@@ -37,6 +37,15 @@ from generate_synthetic_set import (
 )
 from generate_synthetic_dataset import get_single_mesh_object
 
+# Fuente única de verdad: TARPS + rotación analítica desde
+# contact_normal. Ver _pose_utils.py y docs/stable_pose_selection_rule.md.
+from _pose_utils import (
+    apply_stable_pose,
+    get_stable_poses_for_ref,
+    select_pose_tarps,
+    TARPS_MIN_TIPPING_DEFAULT,
+)
+
 # ── Logging ──
 from logger import get_logger, log_execution_header, log_execution_footer
 log = get_logger("yolo")
@@ -48,8 +57,15 @@ BELT_LENGTH_BU = cfg.scene.belt.length_bu
 BELT_THICKNESS_BU = cfg.scene.belt.thickness_bu
 BELT_COLOR_LINEAR = tuple(cfg.scene.belt.color_linear)
 RENDER_RES = cfg.render.resolution.width
-MIN_CONTACT_DIM_MM = cfg.stable_poses.min_contact_dimension_mm
-MIN_STABILITY = cfg.stable_poses.render_min_stability
+MIN_CONTACT_DIM_MM = cfg.stable_poses.min_contact_dimension_mm   # legacy
+MIN_STABILITY = cfg.stable_poses.render_min_stability             # legacy
+# TARPS - Tipping-Aware Random Pose Selection
+# (ver docs/stable_pose_selection_rule.md). El umbral se centraliza
+# en _pose_utils.TARPS_MIN_TIPPING_DEFAULT, pero permitimos override
+# desde config.yaml para experimentos.
+TARPS_MIN_TIPPING = getattr(
+    cfg.stable_poses, "tarps_min_tipping", TARPS_MIN_TIPPING_DEFAULT
+)
 
 
 def load_lego_color_palette():
@@ -69,34 +85,17 @@ def load_lego_color_palette():
 
 
 def get_stable_poses(part_ref):
-    """Load stable poses from cache, filtered by min_contact_dimension_mm and stability."""
+    """Wrapper compatibilidad: delega en `_pose_utils.get_stable_poses_for_ref`.
+    Devuelve poses ordenadas por tipping_energy_ratio descendente.
+    Ver docs/stable_pose_selection_rule.md."""
     cache_path = os.path.join(project_root, "data", "stable_poses_cache.json")
-    if not os.path.exists(cache_path):
-        return []
-    try:
-        with open(cache_path, "r", encoding="utf-8") as f:
-            cache = json.load(f)
-        if part_ref not in cache:
-            return []
-        all_poses = cache[part_ref]
-        # Filter by stability
-        stable = [p for p in all_poses if p.get("stability_ratio", 0.0) >= MIN_STABILITY]
-        # Filter by contact dimension >= 4mm
-        filtered = []
-        for p in (stable or all_poses):
-            contact_w = p.get("contact_width_mm", 999)
-            contact_l = p.get("contact_length_mm", 999)
-            if min(contact_w, contact_l) >= MIN_CONTACT_DIM_MM:
-                filtered.append(p)
-        if filtered:
-            return filtered
-        # Fallback: Top/Bottom faces
-        top_bottom = [p for p in all_poses if p.get("face_class") in ("Top", "Bottom")]
-        if top_bottom:
-            return top_bottom
-        return all_poses if all_poses else []
-    except Exception:
-        return []
+    return get_stable_poses_for_ref(part_ref, cache_path)
+
+
+# `select_pose_tarps` ya está importado de `_pose_utils` arriba; lo
+# re-exportamos aquí para compatibilidad con scripts que hagan
+#   from generate_yolo_training_dataset import select_pose_tarps
+# pero la fuente de verdad vive en `_pose_utils.py`.
 
 
 def setup_lab_lightbox():
@@ -416,12 +415,12 @@ def generate_dataset(camera_type, output_dir, num_frames):
             saved += 1
             continue
 
-        # Select random piece and pose
+        # Select random piece and pose (regla TARPS - ver docs/stable_pose_selection_rule.md)
         part_ref = random.choice(SELECTED_PARTS)
         poses = get_stable_poses(part_ref)
-        if not poses:
-            poses = [{"orientation_quat": [1.0, 0.0, 0.0, 0.0]}]
-        pose = random.choice(poses)
+        pose = select_pose_tarps(poses)
+        if pose is None:
+            pose = {"orientation_quat": [1.0, 0.0, 0.0, 0.0]}
 
         # Load mesh
         part_path = get_ldraw_part_path(part_ref)
@@ -453,27 +452,14 @@ def generate_dataset(camera_type, output_dir, num_frames):
         _normalize_piece(part_obj)
         apply_bevel_modifier(part_obj)
 
-        # Apply stable pose orientation
-        quat = pose.get("orientation_quat")
-        if quat and len(quat) == 4:
-            part_obj.rotation_mode = 'QUATERNION'
-            part_obj.rotation_quaternion = mathutils.Quaternion(quat)
-        else:
-            euler = pose.get("orientation_euler", [0, 0, 0])
-            part_obj.rotation_mode = 'XYZ'
-            part_obj.rotation_euler = mathutils.Euler(euler)
-
-        # Random Z rotation
-        part_obj.rotation_mode = 'XYZ'
-        part_obj.rotation_euler.z += random.uniform(0, 2 * math.pi)
-
-        # Position at center, snap to belt
+        # Aplicación canónica de pose estable: rotación analítica
+        # desde `contact_normal` (determinista) + Z aleatorio + snap
+        # a la cinta. Reemplaza el antiguo bloque que usaba el
+        # `orientation_quat` del cache, que en algunas piezas estaba
+        # corrupto por un bug en `simulate_stable_poses · transform_apply`.
         part_obj.location = (0.0, 0.0, 0.0)
         bpy.context.view_layer.update()
-        bbox_world = [part_obj.matrix_world @ mathutils.Vector(c) for c in part_obj.bound_box]
-        min_z = min(pt.z for pt in bbox_world)
-        part_obj.location.z = -min_z + 0.02
-        bpy.context.view_layer.update()
+        apply_stable_pose(part_obj, pose, random_z=True)
 
         # Apply random color
         color_hex = random.choice(color_palette)

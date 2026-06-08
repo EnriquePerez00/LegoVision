@@ -3,9 +3,14 @@
 # Simulacion fisica de posiciones estables de piezas LEGO en Blender/Bullet.
 import os, sys, json, math, random, argparse
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+repo_root    = os.path.dirname(project_root)
 sys.path.insert(0, project_root)
 sys.path.insert(0, os.path.join(project_root, "scripts"))
 sys.path.insert(0, os.path.join(project_root, "database"))
+# También añadir la raíz del repo y su carpeta scripts/, donde vive
+# `analyze_stable_poses_ldraw.py`.
+sys.path.insert(0, repo_root)
+sys.path.insert(0, os.path.join(repo_root, "scripts"))
 try:
     import bpy, mathutils
     IN_BLENDER = True
@@ -105,6 +110,22 @@ def load_ldraw_part(part_ref):
 
 
 def orient_piece_on_face(obj, contact_normal):
+    """Orienta `obj` para que la cara con normal `contact_normal`
+    apunte hacia -Z (es decir, esa cara descanse sobre la cinta).
+
+    NOTA HISTÓRICA: hasta esta versión, esta función tenía un bug
+    silencioso: `bpy.ops.object.transform_apply(rotation=True)` se
+    ejecutaba sin garantizar que `obj` fuera el ACTIVE object, lo
+    que en algunos contextos (cuando ya hay otra mesh activa)
+    aplicaba el bake al objeto incorrecto y dejaba `obj.rotation_euler`
+    intacto, generando ``orientation_quat`` y ``orientation_euler``
+    inconsistentes en la BD `stable_poses`. La fuente de verdad
+    moderna para la rotación al renderizar es
+    `_pose_utils.rotation_quat_from_contact_normal(contact_normal)`,
+    determinista y sin Blender; aquí dejamos el bake correcto sólo
+    para que el simulador físico pueda evaluar la estabilidad de la
+    pose tras desplazamientos de cinta.
+    """
     n = mathutils.Vector(contact_normal).normalized()
     target = mathutils.Vector((0.0, 0.0, -1.0))
     dot = max(-1.0, min(1.0, n.dot(target)))
@@ -113,7 +134,22 @@ def orient_piece_on_face(obj, contact_normal):
     else:
         axis = n.cross(target).normalized()
         obj.rotation_euler = mathutils.Matrix.Rotation(math.acos(dot), 4, axis).to_euler()
-    bpy.ops.object.transform_apply(rotation=True); bpy.context.view_layer.update()
+    # FIX: Garantizar que `obj` es el active object antes de
+    # `transform_apply`, si no `bpy.ops.object.transform_apply` aplica
+    # el bake a un objeto distinto en silencio.
+    bpy.ops.object.select_all(action="DESELECT")
+    obj.select_set(True)
+    bpy.context.view_layer.objects.active = obj
+    bpy.ops.object.transform_apply(rotation=True)
+    bpy.context.view_layer.update()
+    # Sanity check: tras el bake, rotation_euler debe ser ~(0,0,0).
+    re = obj.rotation_euler
+    if max(abs(re.x), abs(re.y), abs(re.z)) > 1e-4:
+        raise RuntimeError(
+            f"transform_apply(rotation=True) NO se aplicó a {obj.name}; "
+            f"rotation_euler={list(re)}. Revisar contexto activo."
+        )
+
     bbox = [obj.matrix_world @ mathutils.Vector(c) for c in obj.bound_box]
     obj.location = (0.0, 0.0, -min(v.z for v in bbox) + _C["settle_z"])
     bpy.context.view_layer.update()
@@ -223,13 +259,16 @@ def analyze_part(part_ref, belt, n_dirs, debug=False):
         result = simulate_face_stability(obj, belt, normal, n_dirs, debug=debug)
         s = "ESTABLE" if result["stable"] else "inestable"
         print("      " + s + " " + str(result["passes"]) + "/" + str(result["total"]))
-        if result["stable"]:
-            stable_poses.append({"pose_index": len(stable_poses), "contact_normal": normal,
-                "face_class": fc, "contact_area": area,
-                "orientation_quat": result["orientation_quat"],
-                "orientation_euler": result["orientation_euler"],
-                "stability_ratio": result["stability_ratio"],
-                "passes": result["passes"], "total": result["total"]})
+        # Guardar TODAS las caras candidatas (no solo las que pasan threshold).
+        # is_stable = result["stable"] preserva la informacion del filtro,
+        # pero stability_ratio queda como medida continua y comparable.
+        stable_poses.append({"pose_index": len(stable_poses), "contact_normal": normal,
+            "face_class": fc, "contact_area": area,
+            "orientation_quat": result["orientation_quat"],
+            "orientation_euler": result["orientation_euler"],
+            "stability_ratio": result["stability_ratio"],
+            "is_stable": bool(result["stable"]),
+            "passes": result["passes"], "total": result["total"]})
     # Deduplicar poses con normal similar (angulo < ANGLE_THRESH)
     # Para cada normal duplicada, mantener la de mayor area de contacto
     import math as _math
@@ -259,23 +298,79 @@ def analyze_part(part_ref, belt, n_dirs, debug=False):
 
 
 def save_to_db(part_ref, stable_poses, set_id=None):
+    """Guarda en BD (PostgreSQL local vía psycopg2). Borra previas y reinserta."""
     try:
-        from supabase_client import get_client
-        client = get_client()
-        client.table("stable_poses").delete().eq("part_ref", part_ref).execute()
-        for pose in stable_poses:
-            row = {"part_ref": part_ref, "pose_index": pose["pose_index"],
-                   "contact_normal": pose["contact_normal"],
-                   "face_class": pose["face_class"],
-                   "contact_area": pose["contact_area"],
-                   "orientation_quat": pose["orientation_quat"],
-                   "orientation_euler": pose["orientation_euler"],
-                   "simulation_passes": pose["passes"],
-                   "simulation_total": pose["total"],
-                   "stability_ratio": pose["stability_ratio"],
-                   "is_stable": True}
-            if set_id: row["set_id"] = set_id
-            client.table("stable_poses").upsert(row).execute()
+        from supabase_client import get_connection
+        with get_connection() as conn, conn.cursor() as cur:
+            # Borrar poses previas para esta pieza (en este set si se indica)
+            if set_id:
+                cur.execute(
+                    "DELETE FROM stable_poses WHERE part_ref = %s AND set_id = %s",
+                    (part_ref, set_id),
+                )
+            else:
+                cur.execute(
+                    "DELETE FROM stable_poses WHERE part_ref = %s", (part_ref,)
+                )
+            for pose in stable_poses:
+                cur.execute(
+                    """
+                    INSERT INTO stable_poses
+                        (part_ref, pose_index, contact_normal, face_class,
+                         contact_area, orientation_quat, orientation_euler,
+                         simulation_passes, simulation_total, stability_ratio,
+                         is_stable, set_id)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    """,
+                    (
+                        part_ref,
+                        pose["pose_index"],
+                        pose["contact_normal"],
+                        pose["face_class"],
+                        pose["contact_area"],
+                        pose["orientation_quat"],
+                        pose["orientation_euler"],
+                        pose["passes"],
+                        pose["total"],
+                        pose["stability_ratio"],
+                        bool(pose.get("is_stable", True)),
+                        set_id,
+                    ),
+                )
+            # Recalcular stability_ratio_normalized para esta pieza
+            if set_id:
+                cur.execute(
+                    """
+                    WITH max_sr AS (
+                        SELECT GREATEST(MAX(stability_ratio), 1e-6) AS m
+                        FROM stable_poses
+                        WHERE part_ref = %s AND COALESCE(set_id,'') = %s
+                    )
+                    UPDATE stable_poses sp
+                    SET stability_ratio_normalized =
+                        CASE WHEN sp.stability_ratio IS NULL THEN NULL
+                             ELSE sp.stability_ratio / (SELECT m FROM max_sr)
+                        END
+                    WHERE sp.part_ref = %s AND COALESCE(sp.set_id,'') = %s
+                    """,
+                    (part_ref, set_id, part_ref, set_id),
+                )
+            else:
+                cur.execute(
+                    """
+                    WITH max_sr AS (
+                        SELECT GREATEST(MAX(stability_ratio), 1e-6) AS m
+                        FROM stable_poses WHERE part_ref = %s
+                    )
+                    UPDATE stable_poses sp
+                    SET stability_ratio_normalized =
+                        CASE WHEN sp.stability_ratio IS NULL THEN NULL
+                             ELSE sp.stability_ratio / (SELECT m FROM max_sr)
+                        END
+                    WHERE sp.part_ref = %s
+                    """,
+                    (part_ref, part_ref),
+                )
         print("  [DB] " + part_ref + ": " + str(len(stable_poses)) + " poses guardadas")
     except Exception as e:
         print("  [DB WARN] " + part_ref + ": " + str(e))
@@ -322,7 +417,7 @@ def main():
         print("[" + str(i+1) + "/" + str(len(parts)) + "] " + ref)
         r = analyze_part(ref, belt, args.n_dirs, debug=args.debug)
         results.append(r)
-        if args.save_db and r.get("stable_poses"):
+        if args.save_db and r.get("stable_poses") is not None:
             save_to_db(ref, r["stable_poses"], set_id=args.set_id)
     out = args.output or os.path.join(project_root, "data", "tmp",
         "stable_poses_sim_" + args.set_id.replace("-", "") + ".json")

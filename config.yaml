@@ -1,0 +1,428 @@
+# =============================================================================
+#  LegoVision — Configuración Centralizada
+# =============================================================================
+#  Iteración: 9
+#  Última actualización: 2026-06-04
+#
+#  Este fichero es la FUENTE DE VERDAD para todos los parámetros del pipeline.
+#  Cualquier script debe leer de aquí en lugar de usar constantes hardcodeadas.
+#
+#  Uso en Python:
+#    from config_loader import cfg
+#    print(cfg.scene.belt.width_bu)           # → 20.0
+#    print(cfg.cameras.cenital.position)       # → [0.0, 0.0, 15.0]
+#    print(cfg.inference.segmentation.method)  # → "otsu"
+# =============================================================================
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 1. ESCENA 3D (Blender)
+# ─────────────────────────────────────────────────────────────────────────────
+scene:
+
+  # -- Unidades y escala --
+  units:
+    bu_per_mm: 0.1                 # 1 Blender Unit = 10 mm
+    ldraw_to_bu: 0.04              # Factor de conversión LDraw → BU
+    ldraw_threshold: 5.0           # Si max_dim > este valor → se aplica ldraw_to_bu
+
+  # -- Cinta transportadora --
+  belt:
+    width_bu: 20.0                 # Ancho total de la cinta (200 mm)
+    length_bu: 60.0                # Largo de la cinta (600 mm)
+    thickness_bu: 8.0              # Grosor del cubo colisionador (80 mm)
+    surface_z: 0.0                 # Coordenada Z de la superficie superior
+    color_linear: [0.145, 0.255, 0.33, 1.0]  # RGBA lineal para Blender
+    color_hex: "#254154"           # Petrol blue
+    color_rgb_255: [37, 65, 84]    # RGB entero (para canvas DINOv2)
+    roughness: 0.5
+    friction: 0.95
+    restitution: 0.02
+
+  # -- Carriles laterales metálicos --
+  rails:
+    width_bu: 0.2                  # 2 mm de ancho
+    height_bu: 0.4                 # 4 mm de alto
+    material_metallic: 0.9
+    material_roughness: 0.5
+    material_color: [0.55, 0.55, 0.55, 1.0]  # Aluminio mate
+    # En iter9: rail_left ELIMINADO, solo rail_right activo
+    left_enabled: false
+    right_enabled: true
+
+  # -- Iluminación --
+  lighting:
+    top_light:
+      size_bu: 22.0                # Tamaño del area light cenital
+      energy_w: 250.0              # Vatios
+      z_bu: 22.0                   # Altura sobre la cinta
+
+    corner_lights:
+      count: 4
+      offset_xy_bu: 8.0           # Desplazamiento en X/Y desde centro
+      z_bu: 18.0                   # Altura
+      size_bu: 14.0                # Tamaño de cada area light
+      energy_w: 180.0              # Vatios por luz
+      # Posiciones calculadas: (±offset, ±offset, z)
+      # PP=(+8,+8,18), PN=(+8,-8,18), NP=(-8,+8,18), NN=(-8,-8,18)
+
+    # Randomización de luces (solo en generación dataset YOLO)
+    randomize_in_training: true
+    randomize_position_range_bu: 1.0   # ±1 BU en X/Y/Z
+    randomize_energy_range_pct: 0.10   # ±10% de la energía base
+
+  # -- World background --
+  world:
+    color: [0.9, 0.9, 0.9, 1.0]   # Gris claro
+    strength: 0.1
+
+  # -- Física --
+  physics:
+    gravity_z: -9.81
+    frames: 100
+    piece_mass_kg: 0.008
+    piece_friction: 0.95
+    piece_restitution: 0.02
+    spawn_z: 8.0                   # Altura de drop para simulación
+    spawn_jitter_xy: 1.5           # Jitter aleatorio en X/Y al soltar
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 2. CÁMARAS
+# ─────────────────────────────────────────────────────────────────────────────
+cameras:
+
+  # -- Propiedades comunes --
+  common:
+    type: "PERSP"                  # PERSP | ORTHO
+    focal_length_mm: 52.5          # Lens (equivale a 50% zoom sobre 35mm)
+    clip_start: 0.01
+    clip_end: 100.0
+    target: [0.0, 0.0, 0.0]       # Camera_Target (TRACK_TO)
+    track_axis: "TRACK_NEGATIVE_Z"
+    up_axis: "UP_Y"
+
+  # -- Cámara cenital (clasificación primaria) --
+  cenital:
+    position: [0.0, 0.0, 15.0]    # Directamente encima, a 15 BU (150 mm)
+    pitch_deg: 90.0                # Perpendicular a la cinta
+    scale_px_per_mm: 6.7           # Calibrado empíricamente
+    role: "dinov2_visual_similarity + oriented_size_2d"
+    dinov2_enabled: true           # Genera/usa embeddings DINOv2
+
+  # -- Cámara frontal (verificación de perfil y similitud) --
+  frontal:
+    position: [0.0, -15.0, 2.5]   # 15 cm frontal (eje Y), 2.5 cm sobre cinta
+    pitch_deg: 9.5                 # atan(2.5/15) ≈ 9.46°
+    scale_px_per_mm: 6.6           # Calibrado para la distancia
+    role: "height_profile_verification + dinov2_visual_similarity"
+    dinov2_enabled: true           # Sí genera embeddings DINOv2
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 3. RENDER
+# ─────────────────────────────────────────────────────────────────────────────
+render:
+  engine: "BLENDER_EEVEE"          # BLENDER_EEVEE | CYCLES
+  resolution:
+    width: 640
+    height: 640
+  eevee:
+    taa_render_samples: 16
+  cycles:                          # Solo si se usa Cycles (legacy)
+    samples_dataset: 4
+    samples_ref: 48
+    samples_final: 64
+  film_transparent: false          # Belt visible como fondo
+  gpu_acceleration: "METAL"        # Para Apple Silicon
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 4. PIEZAS
+# ─────────────────────────────────────────────────────────────────────────────
+pieces:
+
+  # -- Catálogo de piezas para test/evaluación --
+  selected_parts:
+    - "3005"   # Brick 1×1
+    - "3001"   # Brick 2×4
+    - "3039"   # Slope 45° 2×2
+    - "3665"   # Slope Inv. 45° 1×2
+    - "3010"   # Brick 1×4
+    - "3002"   # Brick 2×3
+    - "3020"   # Plate 2×4
+    - "4070"   # Brick Mod. 1×1 stud lateral
+    - "4032"   # Plate 2×2 Round
+    - "3700"   # Technic Brick 1×2 con agujero
+
+  # -- Dimensiones físicas reales (L × W × H en mm) --
+  dimensions_mm:
+    "3005": [8.0, 8.0, 9.6]
+    "3001": [32.0, 16.0, 9.6]
+    "3039": [16.0, 16.0, 9.6]
+    "3665": [16.0, 8.0, 9.6]
+    "3010": [32.0, 8.0, 9.6]
+    "3002": [24.0, 16.0, 9.6]
+    "3020": [32.0, 16.0, 3.2]
+    "4070": [8.0, 8.0, 9.6]
+    "4032": [16.0, 16.0, 3.2]
+    "3700": [16.0, 8.0, 9.6]
+
+  # -- Alturas por tipo (mm) --
+  heights_mm:
+    brick: 9.6
+    plate: 3.2
+    tile: 3.2
+
+  # -- Colores usados en generación de referencias DINOv2 --
+  reference_colors_hex:
+    - "A0A5A9"  # Light Bluish Gray (código LDraw 85)
+    - "1B1B1B"  # Black (código 0)
+    - "C91A09"  # Red (código 4)
+    - "F2CD37"  # Yellow (código 14)
+    - "DFD1A5"  # White/Tan (código 15)
+    - "0A3C9F"  # Blue (código 1)
+
+  # -- Color del test set --
+  test_color_hex: "A0A5A9"        # Light Bluish Gray uniforme
+
+  # -- Geometría de piezas --
+  bevel_modifier: true             # Aplicar bevel a todas las piezas
+  origin_type: "ORIGIN_GEOMETRY"
+  origin_center: "BOUNDS"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 5. ENTRENAMIENTO YOLO (Detección)
+# ─────────────────────────────────────────────────────────────────────────────
+yolo:
+
+  # -- Dataset --
+  dataset:
+    frames: 500                    # Frames de training a generar
+    pieces_per_frame_min: 20
+    pieces_per_frame_max: 35
+    empty_frame_ratio: 0.05        # 5% de frames sin piezas
+    grid_cols: [-8.5, -5.0, -1.5, 1.5, 5.0, 8.5]  # Columnas del grid de spawn
+    train_val_split: 0.7           # 70% train, 30% val
+    output_raw: "data/raw_dataset"
+    output_processed: "data/processed_dataset"
+    # Nota: Las piezas tipo minifigura (ej. sw0614) están excluidas del pipeline de renderizado e inferencia.
+    # Únicamente se procesan y detectan las piezas no-minifigura asociadas al inventario físico de cada set.
+    classes:
+      0: "lego_piece"
+      1: "minifigure"  # Reservado/Desactivado en pipeline real
+
+  # -- Training --
+  training:
+    model_base: "yolo11n.pt"       # Modelo preentrenado base
+    epochs: 35
+    batch_size: 16
+    image_size: 640
+    device: "mps"                  # mps | cuda | cpu
+    amp: false                     # AMP no compatible con MPS actual
+    workers: 2
+    cache: true                    # Cachear imágenes en RAM
+    patience: 15                   # Early stopping: épocas sin mejora
+    delta_improvement: 0.001       # Mejora mínima en mAP50 para no parar
+
+    # Augmentaciones
+    augmentation:
+      hsv_h: 0.015
+      hsv_s: 0.7
+      hsv_v: 0.4
+      degrees: 360.0              # Rotación completa
+      flip_lr: 0.5
+      flip_ud: 0.5
+
+  # -- Pesos entrenados --
+  weights:
+    best: "models/best.pt"
+    cenital_val: "models/yolo_cenital_val.pt"
+    lateral_val: "models/yolo_lateral_val.pt"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 6. DINOV2 (Clasificación Visual)
+# ─────────────────────────────────────────────────────────────────────────────
+dinov2:
+
+  # -- Modelo --
+  model:
+    name: "dinov2_vits14"          # ViT-Small con patch 14
+    source: "facebookresearch/dinov2"  # torch.hub
+    embedding_dim: 384
+    device: "mps"
+
+  # -- Preprocessing --
+  preprocessing:
+    canvas_size: 224               # Tamaño del canvas cuadrado
+    canvas_margin_px: 8            # Margen interior del canvas
+    canvas_bg_color: [37, 65, 84]  # #254154 (belt color)
+    transform:
+      resize: 256
+      center_crop: 224
+      normalize_mean: [0.485, 0.456, 0.406]
+      normalize_std: [0.229, 0.224, 0.225]
+
+  # -- Projection Head (Metric Learning) --
+  projection_head:
+    type: "multimodal"             # "multimodal" (386→128) | "unimodal" (384→128)
+    input_dim: 386                 # 384 visual + 2 size features
+    hidden_dim: 512
+    output_dim: 128
+    activation: "ReLU"
+    normalization: "LayerNorm"
+    output_normalize: "L2"
+    weights_path: "models/dino_multimodal_head.pt"
+    # Unimodal fallback
+    unimodal_weights_path: "models/dino_metric_head.pt"
+
+  # -- Training del Projection Head --
+  metric_training:
+    loss: "TripletMarginLoss"
+    margin: 1.0
+    p_norm: 2
+    optimizer: "Adam"
+    learning_rate: 0.001
+    epochs: 60
+    batch_size: 64
+    positives_per_anchor: 10       # Máx pares positivos por anchor
+    negatives_per_positive: 2      # Tripletes por par positivo
+
+  # -- Generación de referencias --
+  reference_generation:
+    script: "scripts/generate_eevee_dinov2_refs.py"
+    output_dir: "data/iter9_dinov2_ref"
+    cameras: ["cenital", "frontal"] # Cenital y Frontal en iter9
+    rotations_per_pose: 8          # Cada 45° (360/8)
+    rotation_step_deg: 45
+    # Total: 10 piezas × 6 colores × ~5 poses × 8 rotaciones × 2 cámaras ≈ 4992 refs
+
+  # -- Indexación en base de datos --
+  indexing:
+    script: "scripts/reindex_dinov2_eevee.py"
+    table: "piece_embeddings"
+    cameras_to_index: ["cenital", "frontal"] # Cenital y Frontal
+    cenital_cam_id: 1
+    frontal_cam_id: 2
+    batch_size: 128
+    clear_before_index: true
+    store_raw_embedding: true      # 384-d
+    store_projected_embedding: true # 128-d
+
+  # -- Cache de dimensiones orientadas --
+  dimensions_cache:
+    path: "scratch/ref_oriented_dimensions.json"
+    format: "{part_ref},{pose},{angle} → [major_mm, minor_mm]"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 7. TEST SET
+# ─────────────────────────────────────────────────────────────────────────────
+test_set:
+  script: "scripts/generate_iter9_test_set.py"
+  output_dir: "data/iter9_test"
+  metadata_file: "test_metadata.json"
+  num_samples: 100
+  cameras: ["cenital", "frontal"]
+  naming_pattern: "sample_{NNN}_{camera}.png"
+  guard_left_enabled: false        # Eliminado en iter9
+  poses_cache: "data/stable_poses_cache.json"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 8. INFERENCIA Y EVALUACIÓN
+# ─────────────────────────────────────────────────────────────────────────────
+inference:
+
+  # -- Script de evaluación --
+  evaluation_script: "scripts/run_iter9_evaluation_calibrated.py"
+  report_output: "data/iter9_test/eval_report_iter9.json"
+
+  # -- Calibración de escala --
+  calibration:
+    px_per_mm_ref: 6.7             # Escala de las imágenes de referencia
+    px_per_mm_test: 6.7            # Escala de las imágenes de test (cenital)
+    px_per_mm_lateral: 6.6         # Escala lateral/frontal (ligeramente menor)
+
+  # -- Segmentación pieza/fondo --
+  segmentation:
+    method: "chromaticity"         # ACTUAL: "chromaticity" | PENDIENTE: "otsu" o "threshold"
+    # Para fondo negro (referencias):
+    black_bg_threshold: 5          # Umbral grayscale para refs (fondo negro)
+    bg_corner_dark_thresh: 15      # Si media esquinas < 15 → fondo negro
+    # Para belt color (test):
+    chromaticity_dist_thresh: 0.04 # Distancia cromaticidad pieza vs fondo
+    luminance_min_thresh: 30       # Luminancia mínima para descartar sombras
+    # Morfología:
+    morphology_kernel_size: 3
+    morphology_close_iterations: 2
+    morphology_open_iterations: 1
+    min_contour_area: 10
+
+  # -- Canvas de query --
+  query_canvas:
+    size: 224
+    scale_factor: 0.325            # 208/640 — escala para normalizar crop al canvas
+    bg_color: [0, 0, 0]            # Negro para el canvas de query
+
+  # -- Scoring: Tamaño orientado (cenital) --
+  size_scoring:
+    sigma_mm: 5.0                  # Sigma de la gaussiana de similitud de tamaño
+    # score = exp(-dist² / (2 × sigma²))
+
+  # -- Scoring: Altura frontal --
+  height_validation:
+    # Ángulo de pitch de la cámara frontal (grados)
+    pitch_deg: 9.5
+    cos_pitch: 0.986
+    sin_pitch: 0.164
+    stud_offset_mm: 0.9            # Offset adicional por studs visibles
+
+    # Penalización por discrepancia de altura
+    tolerance_mm: 2.2              # Diff > tolerance → penalización severa
+    penalty_factor: 0.01           # Score × 0.01 si fuera de tolerancia
+
+    # Fórmulas de altura nominal proyectada:
+    #   h_flat    = H × cos + ((L+W)/2) × sin + stud_offset
+    #   h_side    = W × cos + ((L+H)/2) × sin
+    #   h_stand   = L × cos + ((W+H)/2) × sin
+
+  # -- Pesos de fusión por cámara --
+  camera_weights:
+    cenital: 0.7                   # Clasificación cenital DINOv2 peso 0.7
+    frontal: 0.3                   # Clasificación frontal DINOv2 peso 0.3
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 9. SIMULACIÓN DE POSES ESTABLES
+# ─────────────────────────────────────────────────────────────────────────────
+stable_poses:
+  belt_speed_ms: 0.0833           # Velocidad máx cinta: 83.3 mm/s
+  impulse_duration_s: 0.1         # Duración del arranque
+  sim_fps: 60
+  settle_frames: 20               # Frames de asentamiento previo
+  impulse_frames: 6               # Frames del impulso (0.1s × 60fps)
+  eval_frames: 40                 # Frames de evaluación post-impulso
+  total_frames: 66
+  n_directions: 8                 # Direcciones aleatorias de perturbación
+  stability_threshold: 0.875      # 7/8 perturbaciones superadas
+  angle_threshold_deg: 15.0       # Ángulo máx para considerar misma pose
+  min_face_area_ldu2: 28.3        # Área mínima = 1 stud circle (π×3²)
+  settle_z_offset: 0.3            # Offset Z al colocar pieza
+  # Umbral de dimensión mínima para la base de contacto. Se descarta la pose si el ancho o largo es <= 4mm (el lateral mini pieza lego es de 3.2 mm).
+  min_contact_dimension_mm: 4.0
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 10. BASE DE DATOS
+# ─────────────────────────────────────────────────────────────────────────────
+database:
+  provider: "supabase"             # Supabase (PostgreSQL)
+  embeddings_table: "piece_embeddings"
+  # Credenciales en .env (no en este fichero):
+  #   SUPABASE_URL, SUPABASE_KEY, DATABASE_URL
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 11. SETS LEGO
+# ─────────────────────────────────────────────────────────────────────────────
+sets:
+  all_set_ids:
+    - "75078-1"
+    - "911943-1"
+    - "75280-1"
+    - "75218-1"
+    - "75337-1"
+    - "10692-1"
+  default_set_id: "75078-1"
