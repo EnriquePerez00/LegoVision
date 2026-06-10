@@ -1,0 +1,550 @@
+{
+  "ref_gt": "3023",
+  "color_hex_gt": "C30025",
+  "n_samples": 5,
+  "per_cam": {
+    "cenital": {
+      "top1_similarity_mean": 0.8129,
+      "top1_similarity_min": 0.7908,
+      "top1_similarity_max": 0.8226,
+      "top1_correct_count": 5,
+      "top1_correct_pct": 100.0,
+      "max_sim_mean": 0.8129
+    },
+    "lateral": {
+      "top1_similarity_mean": 0.4449,
+      "top1_similarity_min": 0.4133,
+      "top1_similarity_max": 0.4878,
+      "top1_correct_count": 5,
+      "top1_correct_pct": 100.0,
+      "max_sim_mean": 0.4449
+    }
+  },
+  "results": [
+    {
+      "index": 0,
+      "ref_gt": "3023",
+      "pose_index_gt": 0,
+      "color_hex_gt": "C30025",
+      "position_bu": [
+        -0.4274,
+        -0.5259,
+        0.0286
+      ],
+      "cameras": {
+        "cenital": {
+          "image_path": "2camaras_random_pieza_unica/data/random_focus_3023/sample_00_cenital.png",
+          "bbox_norm": [
+            0.23463481664657593,
+            0.7379582524299622,
+            0.3281131684780121,
+            0.7991448044776917
+          ],
+          "top_k": [
+            {
+              "rank": 1,
+              "part_ref": "3023",
+              "pose_index": 0,
+              "rotation_angle": 180,
+              "color_hex": "C30025",
+              "similarity": 0.8197,
+              "ref_image": "/Users/I764690/Code_personal/LegoVision/2camaras_random_pieza_unica/data/dinov2_refs_v3_canonical/cenital/ref_3023_C30025_pose00_rot180.png"
+            },
+            {
+              "rank": 2,
+              "part_ref": "3023",
+              "pose_index": 0,
+              "rotation_angle": 0,
+              "color_hex": "C30025",
+              "similarity": 0.8196,
+              "ref_image": "/Users/I764690/Code_personal/LegoVision/2camaras_random_pieza_unica/data/dinov2_refs_v3_canonical/cenital/ref_3023_C30025_pose00_rot000.png"
+            },
+            {
+              "rank": 3,
+              "part_ref": "3023",
+              "pose_index": 1,
+              "rotation_angle": 180,
+              "color_hex": "C30025",
+              "similarity": 0.8139,
+              "ref_image": "/Users/I764690/Code_personal/LegoVision/2camaras_random_pieza_unica/data/dinov2_refs_v3_canonical/cenital/ref_3023_C30025_pose01_rot180.png"
+            }
+          ],
+          "stats": {
+            "max": 0.8197,
+            "mean": 0.769,
+            "std": 0.0273,
+            "p10": 0.7949,
+            "min": 0.7277,
+            "n_refs": 48
+          }
+        },
+        "lateral": {
+          "image_path": "2camaras_random_pieza_unica/data/random_focus_3023/sample_00_lateral.png",
+          "bbox_norm": [
+            0.27600061893463135,
+            0.4495495557785034,
+            0.315108984708786,
+            0.47526973485946655
+          ],
+          "top_k": [
+            {
+              "rank": 1,
+              "part_ref": "3023",
+              "pose_index": 1,
+              "rotation_angle": 180,
+              "color_hex": "C30025",
+              "similarity": 0.4225,
+              "ref_image": "/Users/I764690/Code_personal/LegoVision/2camaras_random_pieza_unica/data/dinov2_refs_v3_canonical/lateral/ref_3023_C30025_pose01_rot180.png"
+            },
+            {
+              "rank": 2,
+              "part_ref": "3023",
+              "pose_index": 1,
+              "rotation_angle": 0,
+              "color_hex": "C30025",
+              "similarity": 0.4225,
+              "ref_image": "/Users/I764690/Code_personal/LegoVision/2camaras_random_pieza_unica/data/dinov2_refs_v3_canonical/lateral/ref_3023_C30025_pose01_rot000.png"
+            },
+            {
+              "rank": 3,
+              "part_ref": "3023",
+              "pose_index": 0,
+              "rotation_angle": 0,
+              "color_hex": "C30025",
+              "similarity": 0.4037,
+              "ref_image": "/Users/I764690/Code_personal/LegoVision/2camaras_random_pieza_unica/data/dinov2_refs_v3_canonical/lateral/ref_3023_C30025_pose00_rot000.png"
+            }
+          ],
+          "stats": {
+            "max": 0.4225,
+            "mean": 0.3632,
+            "std": 0.0271,
+            "p10": 0.3973,
+            "min": 0.3251,
+            "n_refs": 48
+          }
+        }
+      }
+    },
+    {
+      "index": 1,
+      "ref_gt": "3023",
+      "pose_index_gt": 0,
+      "color_hex_gt": "C30025",
+      "position_bu": [
+        -0.5346,
+        0.0102,
+        0.0286
+      ],
+      "cameras": {
+        "cenital": {
+          "image_path": "2camaras_random_pieza_unica/data/random_focus_3023/sample_01_cenital.png",
+          "bbox_norm": [
+            0.18636555969715118,
+            0.44867318868637085,
+            0.26735660433769226,
+            0.5407848954200745
+          ],
+          "top_k": [
+            {
+              "rank": 1,
+              "part_ref": "3023",
+              "pose_index": 0,
+              "rotation_angle": 0,
+              "color_hex": "C30025",
+              "similarity": 0.8183,
+              "ref_image": "/Users/I764690/Code_personal/LegoVision/2camaras_random_pieza_unica/data/dinov2_refs_v3_canonical/cenital/ref_3023_C30025_pose00_rot000.png"
+            },
+            {
+              "rank": 2,
+              "part_ref": "3023",
+              "pose_index": 0,
+              "rotation_angle": 180,
+              "color_hex": "C30025",
+              "similarity": 0.818,
+              "ref_image": "/Users/I764690/Code_personal/LegoVision/2camaras_random_pieza_unica/data/dinov2_refs_v3_canonical/cenital/ref_3023_C30025_pose00_rot180.png"
+            },
+            {
+              "rank": 3,
+              "part_ref": "3023",
+              "pose_index": 1,
+              "rotation_angle": 180,
+              "color_hex": "C30025",
+              "similarity": 0.8153,
+              "ref_image": "/Users/I764690/Code_personal/LegoVision/2camaras_random_pieza_unica/data/dinov2_refs_v3_canonical/cenital/ref_3023_C30025_pose01_rot180.png"
+            }
+          ],
+          "stats": {
+            "max": 0.8183,
+            "mean": 0.7811,
+            "std": 0.0284,
+            "p10": 0.8116,
+            "min": 0.7427,
+            "n_refs": 48
+          }
+        },
+        "lateral": {
+          "image_path": "2camaras_random_pieza_unica/data/random_focus_3023/sample_01_lateral.png",
+          "bbox_norm": [
+            0.47104519605636597,
+            0.4463011622428894,
+            0.5364355444908142,
+            0.4692118167877197
+          ],
+          "top_k": [
+            {
+              "rank": 1,
+              "part_ref": "3023",
+              "pose_index": 1,
+              "rotation_angle": 0,
+              "color_hex": "C30025",
+              "similarity": 0.4244,
+              "ref_image": "/Users/I764690/Code_personal/LegoVision/2camaras_random_pieza_unica/data/dinov2_refs_v3_canonical/lateral/ref_3023_C30025_pose01_rot000.png"
+            },
+            {
+              "rank": 2,
+              "part_ref": "3023",
+              "pose_index": 1,
+              "rotation_angle": 180,
+              "color_hex": "C30025",
+              "similarity": 0.4244,
+              "ref_image": "/Users/I764690/Code_personal/LegoVision/2camaras_random_pieza_unica/data/dinov2_refs_v3_canonical/lateral/ref_3023_C30025_pose01_rot180.png"
+            },
+            {
+              "rank": 3,
+              "part_ref": "3023",
+              "pose_index": 0,
+              "rotation_angle": 0,
+              "color_hex": "C30025",
+              "similarity": 0.405,
+              "ref_image": "/Users/I764690/Code_personal/LegoVision/2camaras_random_pieza_unica/data/dinov2_refs_v3_canonical/lateral/ref_3023_C30025_pose00_rot000.png"
+            }
+          ],
+          "stats": {
+            "max": 0.4244,
+            "mean": 0.3719,
+            "std": 0.0243,
+            "p10": 0.4046,
+            "min": 0.3355,
+            "n_refs": 48
+          }
+        }
+      }
+    },
+    {
+      "index": 2,
+      "ref_gt": "3023",
+      "pose_index_gt": 0,
+      "color_hex_gt": "C30025",
+      "position_bu": [
+        0.4104,
+        0.3825,
+        0.0286
+      ],
+      "cameras": {
+        "cenital": {
+          "image_path": "2camaras_random_pieza_unica/data/random_focus_3023/sample_02_cenital.png",
+          "bbox_norm": [
+            0.6614347100257874,
+            0.26735275983810425,
+            0.758537769317627,
+            0.3415052890777588
+          ],
+          "top_k": [
+            {
+              "rank": 1,
+              "part_ref": "3023",
+              "pose_index": 0,
+              "rotation_angle": 0,
+              "color_hex": "C30025",
+              "similarity": 0.8226,
+              "ref_image": "/Users/I764690/Code_personal/LegoVision/2camaras_random_pieza_unica/data/dinov2_refs_v3_canonical/cenital/ref_3023_C30025_pose00_rot000.png"
+            },
+            {
+              "rank": 2,
+              "part_ref": "3023",
+              "pose_index": 0,
+              "rotation_angle": 180,
+              "color_hex": "C30025",
+              "similarity": 0.8224,
+              "ref_image": "/Users/I764690/Code_personal/LegoVision/2camaras_random_pieza_unica/data/dinov2_refs_v3_canonical/cenital/ref_3023_C30025_pose00_rot180.png"
+            },
+            {
+              "rank": 3,
+              "part_ref": "3023",
+              "pose_index": 1,
+              "rotation_angle": 180,
+              "color_hex": "C30025",
+              "similarity": 0.8184,
+              "ref_image": "/Users/I764690/Code_personal/LegoVision/2camaras_random_pieza_unica/data/dinov2_refs_v3_canonical/cenital/ref_3023_C30025_pose01_rot180.png"
+            }
+          ],
+          "stats": {
+            "max": 0.8226,
+            "mean": 0.7749,
+            "std": 0.0255,
+            "p10": 0.8004,
+            "min": 0.7403,
+            "n_refs": 48
+          }
+        },
+        "lateral": {
+          "image_path": "2camaras_random_pieza_unica/data/random_focus_3023/sample_02_lateral.png",
+          "bbox_norm": [
+            0.7019810080528259,
+            0.500886857509613,
+            0.8210489153862,
+            0.5562851130962372
+          ],
+          "top_k": [
+            {
+              "rank": 1,
+              "part_ref": "3023",
+              "pose_index": 1,
+              "rotation_angle": 0,
+              "color_hex": "C30025",
+              "similarity": 0.4878,
+              "ref_image": "/Users/I764690/Code_personal/LegoVision/2camaras_random_pieza_unica/data/dinov2_refs_v3_canonical/lateral/ref_3023_C30025_pose01_rot000.png"
+            },
+            {
+              "rank": 2,
+              "part_ref": "3023",
+              "pose_index": 1,
+              "rotation_angle": 180,
+              "color_hex": "C30025",
+              "similarity": 0.4876,
+              "ref_image": "/Users/I764690/Code_personal/LegoVision/2camaras_random_pieza_unica/data/dinov2_refs_v3_canonical/lateral/ref_3023_C30025_pose01_rot180.png"
+            },
+            {
+              "rank": 3,
+              "part_ref": "3023",
+              "pose_index": 1,
+              "rotation_angle": 270,
+              "color_hex": "C30025",
+              "similarity": 0.4742,
+              "ref_image": "/Users/I764690/Code_personal/LegoVision/2camaras_random_pieza_unica/data/dinov2_refs_v3_canonical/lateral/ref_3023_C30025_pose01_rot270.png"
+            }
+          ],
+          "stats": {
+            "max": 0.4878,
+            "mean": 0.4386,
+            "std": 0.0252,
+            "p10": 0.4727,
+            "min": 0.3994,
+            "n_refs": 48
+          }
+        }
+      }
+    },
+    {
+      "index": 3,
+      "ref_gt": "3023",
+      "pose_index_gt": 1,
+      "color_hex_gt": "C30025",
+      "position_bu": [
+        0.1696,
+        0.5879,
+        0.0286
+      ],
+      "cameras": {
+        "cenital": {
+          "image_path": "2camaras_random_pieza_unica/data/random_focus_3023/sample_03_cenital.png",
+          "bbox_norm": [
+            0.5581873655319214,
+            0.15112853050231934,
+            0.6156355142593384,
+            0.2479727864265442
+          ],
+          "top_k": [
+            {
+              "rank": 1,
+              "part_ref": "3023",
+              "pose_index": 0,
+              "rotation_angle": 0,
+              "color_hex": "C30025",
+              "similarity": 0.8131,
+              "ref_image": "/Users/I764690/Code_personal/LegoVision/2camaras_random_pieza_unica/data/dinov2_refs_v3_canonical/cenital/ref_3023_C30025_pose00_rot000.png"
+            },
+            {
+              "rank": 2,
+              "part_ref": "3023",
+              "pose_index": 0,
+              "rotation_angle": 180,
+              "color_hex": "C30025",
+              "similarity": 0.813,
+              "ref_image": "/Users/I764690/Code_personal/LegoVision/2camaras_random_pieza_unica/data/dinov2_refs_v3_canonical/cenital/ref_3023_C30025_pose00_rot180.png"
+            },
+            {
+              "rank": 3,
+              "part_ref": "3023",
+              "pose_index": 0,
+              "rotation_angle": 330,
+              "color_hex": "C30025",
+              "similarity": 0.8129,
+              "ref_image": "/Users/I764690/Code_personal/LegoVision/2camaras_random_pieza_unica/data/dinov2_refs_v3_canonical/cenital/ref_3023_C30025_pose00_rot330.png"
+            }
+          ],
+          "stats": {
+            "max": 0.8131,
+            "mean": 0.7785,
+            "std": 0.0326,
+            "p10": 0.8126,
+            "min": 0.7323,
+            "n_refs": 48
+          }
+        },
+        "lateral": {
+          "image_path": "2camaras_random_pieza_unica/data/random_focus_3023/sample_03_lateral.png",
+          "bbox_norm": [
+            0.7758880257606506,
+            0.48260265588760376,
+            0.8824741244316101,
+            0.5183307528495789
+          ],
+          "top_k": [
+            {
+              "rank": 1,
+              "part_ref": "3023",
+              "pose_index": 1,
+              "rotation_angle": 0,
+              "color_hex": "C30025",
+              "similarity": 0.4767,
+              "ref_image": "/Users/I764690/Code_personal/LegoVision/2camaras_random_pieza_unica/data/dinov2_refs_v3_canonical/lateral/ref_3023_C30025_pose01_rot000.png"
+            },
+            {
+              "rank": 2,
+              "part_ref": "3023",
+              "pose_index": 1,
+              "rotation_angle": 180,
+              "color_hex": "C30025",
+              "similarity": 0.4764,
+              "ref_image": "/Users/I764690/Code_personal/LegoVision/2camaras_random_pieza_unica/data/dinov2_refs_v3_canonical/lateral/ref_3023_C30025_pose01_rot180.png"
+            },
+            {
+              "rank": 3,
+              "part_ref": "3023",
+              "pose_index": 1,
+              "rotation_angle": 270,
+              "color_hex": "C30025",
+              "similarity": 0.4645,
+              "ref_image": "/Users/I764690/Code_personal/LegoVision/2camaras_random_pieza_unica/data/dinov2_refs_v3_canonical/lateral/ref_3023_C30025_pose01_rot270.png"
+            }
+          ],
+          "stats": {
+            "max": 0.4767,
+            "mean": 0.429,
+            "std": 0.0246,
+            "p10": 0.4637,
+            "min": 0.3894,
+            "n_refs": 48
+          }
+        }
+      }
+    },
+    {
+      "index": 4,
+      "ref_gt": "3023",
+      "pose_index_gt": 0,
+      "color_hex_gt": "C30025",
+      "position_bu": [
+        -0.6466,
+        -0.147,
+        0.0286
+      ],
+      "cameras": {
+        "cenital": {
+          "image_path": "2camaras_random_pieza_unica/data/random_focus_3023/sample_04_cenital.png",
+          "bbox_norm": [
+            0.14225582778453827,
+            0.532791405916214,
+            0.19763949513435364,
+            0.6184734404087067
+          ],
+          "top_k": [
+            {
+              "rank": 1,
+              "part_ref": "3023",
+              "pose_index": 0,
+              "rotation_angle": 0,
+              "color_hex": "C30025",
+              "similarity": 0.7908,
+              "ref_image": "/Users/I764690/Code_personal/LegoVision/2camaras_random_pieza_unica/data/dinov2_refs_v3_canonical/cenital/ref_3023_C30025_pose00_rot000.png"
+            },
+            {
+              "rank": 2,
+              "part_ref": "3023",
+              "pose_index": 0,
+              "rotation_angle": 180,
+              "color_hex": "C30025",
+              "similarity": 0.7908,
+              "ref_image": "/Users/I764690/Code_personal/LegoVision/2camaras_random_pieza_unica/data/dinov2_refs_v3_canonical/cenital/ref_3023_C30025_pose00_rot180.png"
+            },
+            {
+              "rank": 3,
+              "part_ref": "3023",
+              "pose_index": 0,
+              "rotation_angle": 330,
+              "color_hex": "C30025",
+              "similarity": 0.7901,
+              "ref_image": "/Users/I764690/Code_personal/LegoVision/2camaras_random_pieza_unica/data/dinov2_refs_v3_canonical/cenital/ref_3023_C30025_pose00_rot330.png"
+            }
+          ],
+          "stats": {
+            "max": 0.7908,
+            "mean": 0.7562,
+            "std": 0.0307,
+            "p10": 0.7892,
+            "min": 0.7136,
+            "n_refs": 48
+          }
+        },
+        "lateral": {
+          "image_path": "2camaras_random_pieza_unica/data/random_focus_3023/sample_04_lateral.png",
+          "bbox_norm": [
+            0.42013704776763916,
+            0.44357073307037354,
+            0.47690919041633606,
+            0.4631039500236511
+          ],
+          "top_k": [
+            {
+              "rank": 1,
+              "part_ref": "3023",
+              "pose_index": 1,
+              "rotation_angle": 180,
+              "color_hex": "C30025",
+              "similarity": 0.4133,
+              "ref_image": "/Users/I764690/Code_personal/LegoVision/2camaras_random_pieza_unica/data/dinov2_refs_v3_canonical/lateral/ref_3023_C30025_pose01_rot180.png"
+            },
+            {
+              "rank": 2,
+              "part_ref": "3023",
+              "pose_index": 1,
+              "rotation_angle": 0,
+              "color_hex": "C30025",
+              "similarity": 0.4133,
+              "ref_image": "/Users/I764690/Code_personal/LegoVision/2camaras_random_pieza_unica/data/dinov2_refs_v3_canonical/lateral/ref_3023_C30025_pose01_rot000.png"
+            },
+            {
+              "rank": 3,
+              "part_ref": "3023",
+              "pose_index": 0,
+              "rotation_angle": 90,
+              "color_hex": "C30025",
+              "similarity": 0.3939,
+              "ref_image": "/Users/I764690/Code_personal/LegoVision/2camaras_random_pieza_unica/data/dinov2_refs_v3_canonical/lateral/ref_3023_C30025_pose00_rot090.png"
+            }
+          ],
+          "stats": {
+            "max": 0.4133,
+            "mean": 0.3608,
+            "std": 0.0237,
+            "p10": 0.392,
+            "min": 0.3263,
+            "n_refs": 48
+          }
+        }
+      }
+    }
+  ]
+}

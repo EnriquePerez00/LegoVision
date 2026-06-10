@@ -34,76 +34,177 @@ scene:
     left_enabled: true
     right_enabled: true
   lighting:
-    lab_lightbox:
-      main_dome:
+    # ─────────────────────────────────────────────────────────────────
+    # SETUP DOMO INDUSTRIAL (canónico desde 2026-09-06b)
+    # ─────────────────────────────────────────────────────────────────
+    # Sustituye al setup `Ring + Bars` (61 W, world 0.05) que producía
+    # renders demasiado oscuros (problema reportado: 3023 Trans-Brown
+    # detectado como gris, Red detectado como negro). El nuevo setup
+    # sigue las especificaciones de `setup_lighting_only.py`:
+    # 3 luces blancas estándar (sin polarizador) + world gris neutro
+    # con strength alto (fill ambiental fuerte) + view transform
+    # `Standard` con look `Medium Contrast`.
+    #
+    # Topología (escalada a Blender Units, 1 BU = 0.1 m = 10 cm):
+    #
+    #   1. Key Cenital  AREA SQUARE 4.0 BU @ (0,0,2.5)   apuntando -Z   15 W
+    #   2. Fill +Y      AREA RECT 3.0x1.0  @ (0,+1.5,0.5) track Camera_Target  5 W
+    #   3. Fill -Y      AREA RECT 3.0x1.0  @ (0,-1.5,0.5) track Camera_Target  5 W
+    #
+    # Valores en metros (canónico spec original):
+    #   Key      0.4 m square @ (0,0,0.25) m, 15 W
+    #   Fill +Y  0.3 x 0.1 m  @ (0,+0.15,0.05) m, 5 W
+    #   Fill -Y  0.3 x 0.1 m  @ (0,-0.15,0.05) m, 5 W
+    #
+    # Diferencias vs setup anterior:
+    #   - Áreas mucho mayores → luz difusa (no puntual), sombras suaves.
+    #   - World strength 0.4 (vs 0.05) → fill ambiental fuerte que evita
+    #     que zonas en sombra colapsen a negro.
+    #   - specular_factor=1.0 (vs 0.1) → ABS reflecta normalmente, no se
+    #     atenúa el componente difuso percibido.
+    #   - View transform `Standard` (no `Filmic`) → sin rolloff de altas,
+    #     RGB lineal preservado para chromaticity-based color inference.
+    #
+    # Energía total: 25 W (15 cenital + 2x 5 fills). A pesar de ser menor
+    # que los 61 W previos, produce renders ~3-4× más brillantes por las
+    # áreas mayores y el fill ambiental.
+    #
+    # EEVEE features activadas (config: render.eevee.*):
+    #   use_gtao=true, use_ssr=true, use_ssr_refraction=true,
+    #   use_shadow_high_bitdepth=true, use_raytracing=true (Eevee Next).
+    #
+    # Implementación: scripts/generate_test_set.py::setup_machine_vision_lighting
+    # Referencia standalone (Blender script tab): scripts/setup_lighting_only.py
+    # ─────────────────────────────────────────────────────────────────
+    industrial_dome:
+      key_cenital:
         type: AREA
+        shape: SQUARE
+        position_bu: [0.0, 0.0, 2.5]    # equiv 0.25 m sobre el origen
+        size_bu: 4.0                    # equiv 0.4 m de lado
+        energy_w: 15.0
+        specular_factor: 1.0
+        color_rgb: [1.0, 1.0, 1.0]
+        rotation_euler: [0.0, 0.0, 0.0] # apunta -Z global
+        purpose: 'Key light cenital, AREA SQUARE difusa'
+      fill_lateral_pos_y:
+        type: AREA
+        shape: RECTANGLE
+        position_bu: [0.0, 1.5, 0.5]    # equiv (0,+0.15,0.05) m
+        size_x_bu: 3.0                  # 0.3 m largo
+        size_y_bu: 1.0                  # 0.1 m ancho
+        energy_w: 5.0
+        specular_factor: 1.0
+        color_rgb: [1.0, 1.0, 1.0]
+        track_to: Camera_Target
+        purpose: 'Fill lateral +Y, AREA RECTANGLE difusa apuntando al centro'
+      fill_lateral_neg_y:
+        type: AREA
+        shape: RECTANGLE
+        position_bu: [0.0, -1.5, 0.5]   # equiv (0,-0.15,0.05) m
+        size_x_bu: 3.0
+        size_y_bu: 1.0
+        energy_w: 5.0
+        specular_factor: 1.0
+        color_rgb: [1.0, 1.0, 1.0]
+        track_to: Camera_Target
+        purpose: 'Fill lateral -Y, AREA RECTANGLE difusa apuntando al centro'
+      color_management:
+        view_transform: Standard
+        look: Medium Contrast
+      eevee_features:
+        use_gtao: true
+        use_ssr: true
+        use_ssr_refraction: true
+        use_shadow_high_bitdepth: true
+        use_raytracing: true            # solo Eevee Next 4.2+
+    # Setup `Ring + Bars` (legacy intermedio, ~61 W). Mantenido por
+    # referencia histórica; NO se usa ya en ningún script.
+    machine_vision:
+      ring_cenital:
+        type: AREA
+        shape: DISK
         position_bu:
         - 0.0
         - 0.0
-        - 12.0
+        - 1.6                  # 16 cm sobre la cinta
+        size_bu: 0.6           # radio del anillo (~6 cm)
+        energy_w: 25.0
+        specular_factor: 0.1   # filtro polarizador simulado
+        color_temp_K: 5500.0   # luz de día neutra (Blackbody)
+        purpose: 'Ring LED cenital industrial con polarizador'
+      bar_lateral_left:
+        type: AREA
+        shape: RECTANGLE
+        position_bu:
+        - 1.5
+        - -0.6
+        - 0.5
+        size_x_bu: 0.8         # longitud de la barra (~8 cm)
+        size_y_bu: 0.15        # ancho (~1.5 cm)
+        energy_w: 18.0
+        specular_factor: 0.1
+        color_temp_K: 5500.0
+        track_to: Camera_Target
+        purpose: 'Bar LED lateral izquierda flanqueando cam lateral'
+      bar_lateral_right:
+        type: AREA
+        shape: RECTANGLE
+        position_bu:
+        - 1.5
+        - 0.6
+        - 0.5
+        size_x_bu: 0.8
+        size_y_bu: 0.15
+        energy_w: 18.0
+        specular_factor: 0.1
+        color_temp_K: 5500.0
+        track_to: Camera_Target
+        purpose: 'Bar LED lateral derecha flanqueando cam lateral'
+    # Setup legacy (caja de luz 4600 W). Se mantiene como referencia
+    # histórica del setup anterior — NO se utiliza ya en ningún script.
+    # Eliminar tras validación visual del nuevo MV setup.
+    lab_lightbox_legacy:
+      main_dome:
+        type: AREA
+        position_bu: [0.0, 0.0, 12.0]
         size_x_bu: 35.0
         size_y_bu: 35.0
         energy_w: 2000.0
-        color_rgb:
-        - 1.0
-        - 1.0
-        - 1.0
+        color_rgb: [1.0, 1.0, 1.0]
       wall_panels:
         type: AREA
         positions_bu:
-          N:
-          - 0.0
-          - 12.0
-          - 6.0
-          S:
-          - 0.0
-          - -12.0
-          - 6.0
-          E:
-          - 12.0
-          - 0.0
-          - 6.0
-          W:
-          - -12.0
-          - 0.0
-          - 6.0
-        target_bu:
-        - 0.0
-        - 0.0
-        - 0.0
+          N: [0.0, 12.0, 6.0]
+          S: [0.0, -12.0, 6.0]
+          E: [12.0, 0.0, 6.0]
+          W: [-12.0, 0.0, 6.0]
+        target_bu: [0.0, 0.0, 0.0]
         size_x_bu: 20.0
         size_y_bu: 12.0
         energy_w: 600.0
-        color_rgb:
-        - 1.0
-        - 1.0
-        - 1.0
       ground_fill:
         type: AREA
-        position_bu:
-        - 0.0
-        - 0.0
-        - -0.5
+        position_bu: [0.0, 0.0, -0.5]
         size_x_bu: 30.0
         size_y_bu: 30.0
         energy_w: 200.0
-        color_rgb:
-        - 1.0
-        - 1.0
-        - 1.0
     randomize_in_training: true
     energy_var_pct: 0.03
-    color_temp_K_center: 4100.0
+    color_temp_K_center: 5500.0   # alineado con MV setup (antes 4100K).
     color_temp_K_range: 150.0
     position_jitter_bu: 0.1
     randomize_for_references: false
   world:
+    # Setup Domo Industrial (canónico): gris neutro 0.5,0.5,0.5 con
+    # strength 0.4 → fill ambiental fuerte que evita zonas oscuras
+    # colapsando a negro y mantiene neutralidad cromática del fondo.
     color:
+    - 0.5
+    - 0.5
+    - 0.5
     - 1.0
-    - 1.0
-    - 1.0
-    - 1.0
-    strength: 0.3
+    strength: 0.4
   physics:
     gravity_z: -9.81
     frames: 100

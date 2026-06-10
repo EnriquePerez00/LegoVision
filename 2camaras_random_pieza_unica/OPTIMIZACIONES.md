@@ -1,31 +1,54 @@
 # 🚀 OPTIMIZACIONES IMPLEMENTADAS - 2camaras_random_pieza_unica
 
-**Fecha:** 8 Junio 2026
-**Hardware:** Apple M4 Pro (12 cores, 48GB RAM)
+**Fecha (revisión sprint 1-3):** 9 Sep 2026
+**Hardware:** Apple M4 (12 cores, 48 GB RAM)
 
 ## ✅ TODAS LAS OPCIONES IMPLEMENTADAS
 
-### Opción A: Paralelización (4 Workers Dinámicos)
-- `scripts/run_parallel_render.sh` (146 líneas)
-- `scripts/generate_yolo_training_dataset_parallel.py` (482 líneas)
-- `scripts/merge_worker_metadata.py` (76 líneas)
-- Detección dinámica de recursos (mantiene 20% CPU/RAM libre)
-- Reduce a 3 workers si recursos insuficientes
-- **Speedup: 4-5x**
+### Sprint 1 — Render DINOv2 (1.1 + 1.2 + 1.4)
+- **1.1** TAA 16 → 8 + bloom/SSR/AO=OFF aplicado en
+  `scripts/generate_eevee_dinov2_refs.py` y
+  `scripts/generate_eevee_dinov2_refs_parallel.py`.
+- **1.2** `run_pipeline.sh` paso 5 ahora invoca `run_parallel_dinov2.sh`
+  (4 workers dinámicos manteniendo 20% CPU/RAM libre).
+- **1.4** Render res 640 → **384** vía flag `--render_res` (default
+  configurable; el pipeline pasa 384 explícitamente).
+- **Speedup combinado proyectado:** 21m 38s → ~4-6 min (3-5×).
 
-### Opción B: Optimización de Rendering
-- B1: TAA samples 16 → 8
-- B2: Pre-cargar las 38 meshes UNA VEZ (elimina ~600ms/frame de overhead)
-- B3: Desactivar bloom/SSR/AO en EEVEE
-- **Speedup combinado: 50-60%**
+### Sprint 2 — Indexado DINOv2 (2.1 + 2.2 + 2.3)
+Modificaciones en `training/index_synthetic_renders.py`:
+- **2.1** Preprocess (PIL+resize+canvas+transform) en `ThreadPoolExecutor`
+  (`PREPROC_WORKERS=8`); permite que la GPU MPS no espere por I/O.
+- **2.2** `DEFAULT_BATCH_SIZE=128` (antes 64).
+- **2.3** Contador `indexed` SÓLO se incrementa tras `save_piece_embeddings_batch`
+  exitoso, evitando el bug del log donde aparecían `total_failed=2880`
+  con `total_indexed=2880` simultáneamente.
+- **Speedup proyectado:** 41 s → ~20-25 s (1.6-2×).
 
-### Opción C: YOLO Training Dinámico (MPS + Workers)
-- `training/train_yolo.py` refactorizado
-- Función `detect_optimal_training_config()`:
-  - workers=8 (con 12 cores y 20% reservado)
-  - batch_size=32 (con 48GB RAM)
-  - device='mps' (M4 Pro)
-- **Speedup: 2-3x**
+### Sprint 3 — Inferencia (3.1 + 3.2 + 3.3 helpers)
+Modificaciones en `2camaras_random_pieza_unica/scripts/run_evaluation.py`:
+- **3.1** Pre-cómputo YOLO **en lotes de 16** (`yolo_detect_bbox_batch`).
+  Antes: 600 calls secuenciales (1 cen + 1 lat × 300 samples).
+  Ahora: ~38 batches (300/16 × 2 cámaras).
+- **3.2** SAM en lote por cámara (`segment_crop_sam_batch`); reusa el
+  contexto del modelo entre llamadas adyacentes (sin overhead Python).
+- **3.3** Helper `classify_camera_batch` disponible (procesa N crops en un
+  forward pass DINOv2). Mantiene ruta unitaria por seguridad; activable
+  reemplazando las dos llamadas `classify_camera(...)` en el bucle.
+- **Refactor del bucle:** una primera pasada batch (YOLO + SAM) y una
+  segunda pasada por sample con cálculos CPU-bound (color, height,
+  surface gating, KNN).
+- **Speedup proyectado:** 0.36 s/sample → ~0.10-0.15 s/sample (~2-3×).
+
+### Pipeline orquestación
+- `run_pipeline.sh` actualizado para llamar al render paralelo en paso 5
+  con `--render_res 384`.
+- `run_parallel_dinov2.sh` ahora acepta `RENDER_RES` como 3er argumento.
+- `generate_eevee_dinov2_refs(_parallel).py` aceptan `--render_res`.
+
+### Heredado (sprints anteriores — siguen activos)
+- Paralelización 4-workers con detección dinámica de CPU/RAM (20% libre).
+- YOLO Training Dinámico (`training/train_yolo.py` con `detect_optimal_training_config()`).
 
 ## 📈 PROYECCIÓN
 

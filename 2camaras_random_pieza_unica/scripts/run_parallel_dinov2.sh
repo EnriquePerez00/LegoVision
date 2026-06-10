@@ -11,6 +11,7 @@ SUBPROJECT="2camaras_random_pieza_unica"
 
 OUTPUT_DIR=${1:-$PROJECT_ROOT/$SUBPROJECT/data/dinov2_refs}
 ROTATIONS=${2:-12}
+RENDER_RES=${3:-384}     # opt 1.4 — 384px (vs 640 baseline) para refs DINOv2
 
 # Detección dinámica de recursos
 TOTAL_CPU=$(sysctl -n hw.logicalcpu)
@@ -56,8 +57,9 @@ echo "📊 Configuración:"
 echo "   Workers: $NUM_WORKERS (rango: 3-4 dinámico)"
 echo "   Piezas totales: $TOTAL_PARTS"
 echo "   Rotaciones por pose: $ROTATIONS"
+echo "   Resolución: ${RENDER_RES}x${RENDER_RES} (opt 1.4)"
 echo "   Output: $OUTPUT_DIR"
-echo "   TAA samples: 16 (calidad mantenida)"
+echo "   TAA samples: 8 (opt 1.1) | bloom/SSR/AO=OFF (B3)"
 echo "   Skip existing: ON (resume mode)"
 echo "=================================================="
 
@@ -90,6 +92,7 @@ for ((i=0; i<NUM_WORKERS; i++)); do
     $BLENDER -b -P $SCRIPT_DIR/generate_eevee_dinov2_refs_parallel.py -- \
         --output_dir "$OUTPUT_DIR" \
         --rotations $ROTATIONS \
+        --render_res $RENDER_RES \
         --start_idx $START \
         --end_idx $END \
         --worker_id $i \

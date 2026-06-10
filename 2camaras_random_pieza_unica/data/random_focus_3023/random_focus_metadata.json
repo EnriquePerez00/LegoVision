@@ -1,0 +1,241 @@
+{
+  "set_id": "75078-1",
+  "ref": "3023",
+  "color_hex": "#C30025",
+  "color_name": "Red",
+  "color_code": "5",
+  "render_engine": "BLENDER_EEVEE",
+  "resolution": "384x384",
+  "fov_cenital_mm": 200,
+  "margin_mm": 5,
+  "samples_count": 5,
+  "skipped": [],
+  "renders": [
+    {
+      "index": 0,
+      "ref": "3023",
+      "pose_index": 0,
+      "original_pose_index": 0,
+      "face_class": "Side",
+      "lateral_height_gt": 4.8,
+      "zenith_silhouette_area_gt": 132.0228,
+      "zenith_observable_area_gt": 128.0,
+      "contact_normal_gt": [
+        1.5099580252808664e-07,
+        -1.0,
+        -4.649122899991198e-07
+      ],
+      "color_hex": "#C30025",
+      "color_name": "Red",
+      "color_code": "5",
+      "position_bu": [
+        -0.4274,
+        -0.5259,
+        0.0286
+      ],
+      "cameras": {
+        "cenital": {
+          "file_name": "sample_00_cenital.png",
+          "image_path": "/Users/I764690/Code_personal/LegoVision/2camaras_random_pieza_unica/data/random_focus_3023/sample_00_cenital.png",
+          "bbox_norm": [
+            0.23463481664657593,
+            0.7379582524299622,
+            0.3281131684780121,
+            0.7991448044776917
+          ]
+        },
+        "lateral": {
+          "file_name": "sample_00_lateral.png",
+          "image_path": "/Users/I764690/Code_personal/LegoVision/2camaras_random_pieza_unica/data/random_focus_3023/sample_00_lateral.png",
+          "bbox_norm": [
+            0.27600061893463135,
+            0.4495495557785034,
+            0.315108984708786,
+            0.47526973485946655
+          ]
+        }
+      }
+    },
+    {
+      "index": 1,
+      "ref": "3023",
+      "pose_index": 0,
+      "original_pose_index": 0,
+      "face_class": "Side",
+      "lateral_height_gt": 4.8,
+      "zenith_silhouette_area_gt": 132.0228,
+      "zenith_observable_area_gt": 128.0,
+      "contact_normal_gt": [
+        1.5099580252808664e-07,
+        -1.0,
+        -4.649122899991198e-07
+      ],
+      "color_hex": "#C30025",
+      "color_name": "Red",
+      "color_code": "5",
+      "position_bu": [
+        -0.5346,
+        0.0102,
+        0.0286
+      ],
+      "cameras": {
+        "cenital": {
+          "file_name": "sample_01_cenital.png",
+          "image_path": "/Users/I764690/Code_personal/LegoVision/2camaras_random_pieza_unica/data/random_focus_3023/sample_01_cenital.png",
+          "bbox_norm": [
+            0.18636555969715118,
+            0.44867318868637085,
+            0.26735660433769226,
+            0.5407848954200745
+          ]
+        },
+        "lateral": {
+          "file_name": "sample_01_lateral.png",
+          "image_path": "/Users/I764690/Code_personal/LegoVision/2camaras_random_pieza_unica/data/random_focus_3023/sample_01_lateral.png",
+          "bbox_norm": [
+            0.47104519605636597,
+            0.4463011622428894,
+            0.5364355444908142,
+            0.4692118167877197
+          ]
+        }
+      }
+    },
+    {
+      "index": 2,
+      "ref": "3023",
+      "pose_index": 0,
+      "original_pose_index": 0,
+      "face_class": "Side",
+      "lateral_height_gt": 4.8,
+      "zenith_silhouette_area_gt": 132.0228,
+      "zenith_observable_area_gt": 128.0,
+      "contact_normal_gt": [
+        1.5099580252808664e-07,
+        -1.0,
+        -4.649122899991198e-07
+      ],
+      "color_hex": "#C30025",
+      "color_name": "Red",
+      "color_code": "5",
+      "position_bu": [
+        0.4104,
+        0.3825,
+        0.0286
+      ],
+      "cameras": {
+        "cenital": {
+          "file_name": "sample_02_cenital.png",
+          "image_path": "/Users/I764690/Code_personal/LegoVision/2camaras_random_pieza_unica/data/random_focus_3023/sample_02_cenital.png",
+          "bbox_norm": [
+            0.6614347100257874,
+            0.26735275983810425,
+            0.758537769317627,
+            0.3415052890777588
+          ]
+        },
+        "lateral": {
+          "file_name": "sample_02_lateral.png",
+          "image_path": "/Users/I764690/Code_personal/LegoVision/2camaras_random_pieza_unica/data/random_focus_3023/sample_02_lateral.png",
+          "bbox_norm": [
+            0.7019810080528259,
+            0.500886857509613,
+            0.8210489153862,
+            0.5562851130962372
+          ]
+        }
+      }
+    },
+    {
+      "index": 3,
+      "ref": "3023",
+      "pose_index": 1,
+      "original_pose_index": 1,
+      "face_class": "Side",
+      "lateral_height_gt": 4.8,
+      "zenith_silhouette_area_gt": 129.6374,
+      "zenith_observable_area_gt": 128.0,
+      "contact_normal_gt": [
+        -3.258413983076025e-07,
+        1.0,
+        7.549790126404332e-08
+      ],
+      "color_hex": "#C30025",
+      "color_name": "Red",
+      "color_code": "5",
+      "position_bu": [
+        0.1696,
+        0.5879,
+        0.0286
+      ],
+      "cameras": {
+        "cenital": {
+          "file_name": "sample_03_cenital.png",
+          "image_path": "/Users/I764690/Code_personal/LegoVision/2camaras_random_pieza_unica/data/random_focus_3023/sample_03_cenital.png",
+          "bbox_norm": [
+            0.5581873655319214,
+            0.15112853050231934,
+            0.6156355142593384,
+            0.2479727864265442
+          ]
+        },
+        "lateral": {
+          "file_name": "sample_03_lateral.png",
+          "image_path": "/Users/I764690/Code_personal/LegoVision/2camaras_random_pieza_unica/data/random_focus_3023/sample_03_lateral.png",
+          "bbox_norm": [
+            0.7758880257606506,
+            0.48260265588760376,
+            0.8824741244316101,
+            0.5183307528495789
+          ]
+        }
+      }
+    },
+    {
+      "index": 4,
+      "ref": "3023",
+      "pose_index": 0,
+      "original_pose_index": 0,
+      "face_class": "Side",
+      "lateral_height_gt": 4.8,
+      "zenith_silhouette_area_gt": 132.0228,
+      "zenith_observable_area_gt": 128.0,
+      "contact_normal_gt": [
+        1.5099580252808664e-07,
+        -1.0,
+        -4.649122899991198e-07
+      ],
+      "color_hex": "#C30025",
+      "color_name": "Red",
+      "color_code": "5",
+      "position_bu": [
+        -0.6466,
+        -0.147,
+        0.0286
+      ],
+      "cameras": {
+        "cenital": {
+          "file_name": "sample_04_cenital.png",
+          "image_path": "/Users/I764690/Code_personal/LegoVision/2camaras_random_pieza_unica/data/random_focus_3023/sample_04_cenital.png",
+          "bbox_norm": [
+            0.14225582778453827,
+            0.532791405916214,
+            0.19763949513435364,
+            0.6184734404087067
+          ]
+        },
+        "lateral": {
+          "file_name": "sample_04_lateral.png",
+          "image_path": "/Users/I764690/Code_personal/LegoVision/2camaras_random_pieza_unica/data/random_focus_3023/sample_04_lateral.png",
+          "bbox_norm": [
+            0.42013704776763916,
+            0.44357073307037354,
+            0.47690919041633606,
+            0.4631039500236511
+          ]
+        }
+      }
+    }
+  ],
+  "scene": "canonical (scene_canonical.py)"
+}

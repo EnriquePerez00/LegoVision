@@ -1,0 +1,17 @@
+# YOLO11n-pose dataset config — camara cenital
+# Generado para 2camaras_random_pieza_unica con 9 keypoints canonicos:
+#   0: bottom_back_left   1: bottom_back_right
+#   2: bottom_front_right 3: bottom_front_left
+#   4: top_back_left      5: top_back_right
+#   6: top_front_right    7: top_front_left
+#   8: centroid
+
+path: ../data/yolo_pose_cenital
+train: images/train
+val: images/train  # MVP: usamos train como val (no hay split aun)
+
+kpt_shape: [9, 3]
+flip_idx: [1, 0, 3, 2, 5, 4, 7, 6, 8]   # mirror horizontal preserva pares L/R
+
+names:
+  0: lego_piece

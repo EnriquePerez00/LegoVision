@@ -185,11 +185,25 @@ def select_pose_tarps(
 # 3) Aplicación de la pose en Blender (lazy import de bpy/mathutils)
 # ─────────────────────────────────────────────────────────────────
 def _world_bbox_min_z(part_obj) -> float:
-    """Devuelve el menor world-Z del bounding-box de `part_obj`.
-    Lazy import de mathutils (sólo Blender)."""
-    import mathutils
-    bbox_local = [mathutils.Vector(c) for c in part_obj.bound_box]
-    return min((part_obj.matrix_world @ v).z for v in bbox_local)
+    """Devuelve el menor world-Z de la geometria real de `part_obj`.
+
+    IMPORTANTE: itera sobre `obj.data.vertices` (vertices reales del mesh)
+    en lugar de `obj.bound_box` (AABB local del mesh). El AABB local rotado
+    da el min-Z de las ESQUINAS del cubo envolvente, que para piezas
+    inclinadas (contact_normal oblicuo) puede quedar 1-2 cm POR DEBAJO del
+    extremo inferior real del mesh. Eso provocaba que el snap a la cinta
+    apoyara las esquinas vacias del bbox y la pieza quedara FLOTANDO sobre
+    la cinta.
+
+    Lazy import de mathutils (solo Blender).
+    """
+    if not part_obj.data or not hasattr(part_obj.data, "vertices"):
+        # Fallback: usar bbox si no hay vertices accesibles
+        import mathutils
+        bbox_local = [mathutils.Vector(c) for c in part_obj.bound_box]
+        return min((part_obj.matrix_world @ v).z for v in bbox_local)
+    mw = part_obj.matrix_world
+    return min((mw @ v.co).z for v in part_obj.data.vertices)
 
 
 def apply_stable_pose(

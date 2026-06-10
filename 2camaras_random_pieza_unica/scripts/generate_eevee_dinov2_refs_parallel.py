@@ -60,10 +60,12 @@ from logger import get_logger, log_execution_header, log_execution_footer
 log = get_logger("blender_parallel")
 
 SELECTED_PARTS = cfg.pieces.selected_parts
-RENDER_RES = cfg.render.resolution.width
+RENDER_RES_DEFAULT = cfg.render.resolution.width
 
-# Optimizaciones EEVEE (B3 sí, B1 NO - calidad mantenida)
-TAA_SAMPLES = 16
+# Optimizaciones EEVEE (sprint 1 — render refs DINOv2 reducido):
+#   - 1.1 (TAA 16→8): ganancia ~25-30% sin pérdida visible para refs DINOv2.
+#   - B3: bloom/SSR/AO desactivados (innecesarios para refs canónicas).
+TAA_SAMPLES = 8
 DISABLE_BLOOM = True
 DISABLE_SSR = True
 DISABLE_AO = True
@@ -98,13 +100,18 @@ def main():
     parser.add_argument("--end_idx", type=int, default=-1)
     parser.add_argument("--worker_id", type=int, default=0)
     parser.add_argument("--skip_existing", action="store_true")
+    parser.add_argument("--render_res", type=int, default=RENDER_RES_DEFAULT,
+                        help="Resolución cuadrada (px) del render. "
+                             "Para refs DINOv2 se recomienda 384 (1.4).")
     pa = parser.parse_known_args(args_raw)[0]
     out_dir = pa.output_dir
+    render_res = int(pa.render_res)
 
     log_execution_header(log, "generate_eevee_dinov2_refs_parallel.py",
                          worker_id=pa.worker_id,
                          start_idx=pa.start_idx, end_idx=pa.end_idx,
                          output_dir=out_dir, rotations=pa.rotations,
+                         render_res=render_res,
                          skip_existing=pa.skip_existing)
 
     for c in ["cenital", "lateral"]:
@@ -120,8 +127,8 @@ def main():
     scene = bpy.context.scene
     scene.render.engine = "BLENDER_EEVEE"
     scene.render.film_transparent = True
-    scene.render.resolution_x = RENDER_RES
-    scene.render.resolution_y = RENDER_RES
+    scene.render.resolution_x = render_res
+    scene.render.resolution_y = render_res
     apply_eevee_optimizations(scene)
 
     total_rendered = 0
@@ -232,6 +239,21 @@ def main():
                     bpy.context.view_layer.update()
 
                     if not skip_cen:
+                        # ── Render Cenital ──
+                        # Ocultamos del frame los planos opacos que la cámara cenital
+                        # ve por debajo de la pieza (Lab_Floor, Conveyor_Belt_Plane,
+                        # Side_Rail_L/R) para que `film_transparent=True` produzca
+                        # alpha=0 en el fondo, igual que ya ocurre con el lateral.
+                        # Crítico para colores translúcidos (Trans-Brown, Trans-Red…).
+                        _hide_targets = ["Lab_Floor", "Conveyor_Belt_Plane",
+                                         "Side_Rail_L", "Side_Rail_R"]
+                        _prev_hide = {}
+                        for _n in _hide_targets:
+                            _o = bpy.data.objects.get(_n)
+                            if _o is not None:
+                                _prev_hide[_n] = _o.hide_render
+                                _o.hide_render = True
+
                         scene.camera = cam_c
                         scene.render.filepath = cenital_path
                         try:
@@ -239,10 +261,17 @@ def main():
                             total_rendered += 1
                         except Exception as e:
                             log.warning(f"[w{pa.worker_id}] Cen fallido {fname}: {e}")
+                        finally:
+                            # Restaurar visibilidad antes del render lateral.
+                            for _n, _prev in _prev_hide.items():
+                                _o = bpy.data.objects.get(_n)
+                                if _o is not None:
+                                    _o.hide_render = _prev
                     else:
                         total_skipped += 1
 
                     if not skip_lat:
+                        # ── Render Lateral ──
                         scene.camera = cam_l
                         scene.render.filepath = lateral_path
                         try:

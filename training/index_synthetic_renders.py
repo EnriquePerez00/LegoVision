@@ -32,11 +32,19 @@ import torch
 import torchvision.transforms as T
 from PIL import Image
 import numpy as np
+from concurrent.futures import ThreadPoolExecutor
 
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(project_root)
 
 from database import supabase_client
+
+# Optimizaciones (sprint 2):
+#   - 2.1 ThreadPool de PIL+preprocess+transform (8 hilos CPU) mientras la
+#         GPU MPS procesa el batch anterior.
+#   - 2.2 batch_size por defecto 128 (antes 64).
+PREPROC_WORKERS = 8
+DEFAULT_BATCH_SIZE = 128
 
 # COLOR HEX → LDraw color code mapping
 COLOR_HEX_TO_CODE = {
@@ -121,85 +129,113 @@ def extract_embedding(img: Image.Image, model, transform, device) -> np.ndarray:
     return vec.cpu().numpy().astype(np.float32)
 
 
-def index_directory(image_paths, regex, model, transform, device, face_id, batch_size=64):
-    """Indexa una lista de imágenes con el regex dado en lotes. Retorna (indexed, failed)."""
+def _parse_and_load(p, regex, transform):
+    """Parsea metadata desde el filename y carga PIL+preprocess+transform.
+    Diseñado para ejecutarse en ThreadPool (opt 2.1)."""
+    m = regex.match(os.path.basename(p))
+    if not m:
+        return None
+    part_ref = m.group(1)
+    color_hex = m.group(2).upper()
+    if regex.groups >= 4:
+        pose_str = m.group(3)
+        pose_index = int(pose_str) if pose_str is not None else 0
+        rotation_angle = int(m.group(4))
+    elif regex.groups == 3:
+        pose_index = 0
+        rotation_angle = int(m.group(3))
+    else:
+        pose_index = 0
+        rotation_angle = 0
+    color_code = COLOR_HEX_TO_CODE.get(color_hex, "0")
+
+    try:
+        img = Image.open(p).convert("RGB")
+        img_proc = preprocess_render(img)
+        transformed = transform(img_proc)
+    except Exception as e:
+        return ("err", os.path.basename(p), str(e))
+
+    meta = {
+        "part_ref": part_ref,
+        "color_hex": color_hex,
+        "rotation_angle": rotation_angle,
+        "pose_index": pose_index,
+        "color_code": color_code,
+        "filename": os.path.basename(p),
+    }
+    return ("ok", transformed, meta)
+
+
+def index_directory(image_paths, regex, model, transform, device, face_id,
+                    batch_size=DEFAULT_BATCH_SIZE):
+    """Indexa una lista de imágenes con el regex dado en lotes.
+    Retorna (indexed, failed).
+
+    Optimizaciones (sprint 2):
+      - 2.1 Preprocess con ThreadPoolExecutor (PREPROC_WORKERS=8) para que
+        la GPU MPS no espere por I/O y resize/normalize CPU-bound.
+      - 2.2 batch_size por defecto 128.
+    """
     indexed = 0
     failed = 0
-    
-    for i in range(0, len(image_paths), batch_size):
-        batch_paths = image_paths[i:i+batch_size]
-        imgs_tensor = []
-        valid_metadata = []
-        
-        for p in batch_paths:
-            m = regex.match(os.path.basename(p))
-            if not m:
-                continue
-            part_ref = m.group(1)
-            color_hex = m.group(2).upper()
-            # Esquemas soportados:
-            #   3-group regex: (part, color, rot)               → pose=0
-            #   4-group regex: (part, color, pose|None, rot)    → pose explícito
-            if regex.groups >= 4:
-                pose_str = m.group(3)
-                pose_index = int(pose_str) if pose_str is not None else 0
-                rotation_angle = int(m.group(4))
-            elif regex.groups == 3:
-                pose_index = 0
-                rotation_angle = int(m.group(3))
-            else:
-                pose_index = 0
-                rotation_angle = 0
-            color_code = COLOR_HEX_TO_CODE.get(color_hex, "0")
 
+    with ThreadPoolExecutor(max_workers=PREPROC_WORKERS) as executor:
+        for i in range(0, len(image_paths), batch_size):
+            batch_paths = image_paths[i:i + batch_size]
+
+            # 2.1 — preprocess en paralelo (CPU)
+            results = list(executor.map(
+                lambda p: _parse_and_load(p, regex, transform),
+                batch_paths,
+            ))
+
+            imgs_tensor = []
+            valid_metadata = []
+            for r in results:
+                if r is None:
+                    continue
+                if r[0] == "err":
+                    failed += 1
+                    print(f"  ❌ Error cargando {r[1]}: {r[2]}")
+                    continue
+                imgs_tensor.append(r[1])
+                valid_metadata.append(r[2])
+
+            if not imgs_tensor:
+                continue
+
+            # 2.3 — contar SOLO tras éxito del save (antes contaba antes y
+            # el log marcaba fallidos+indexados duplicados cuando el insert
+            # fallaba pero el bucle ya había sumado indexed).
             try:
-                img = Image.open(p).convert("RGB")
-                img_proc = preprocess_render(img)
-                transformed = transform(img_proc)
-                imgs_tensor.append(transformed)
-                valid_metadata.append({
-                    "part_ref": part_ref,
-                    "color_hex": color_hex,
-                    "rotation_angle": rotation_angle,
-                    "pose_index": pose_index,
-                    "color_code": color_code,
-                    "filename": os.path.basename(p)
-                })
+                batch_tensor = torch.stack(imgs_tensor).to(device)
+                with torch.no_grad():
+                    features = model(batch_tensor)
+                    features = torch.nn.functional.normalize(features, dim=-1)
+                    embeddings = features.cpu().numpy()
+
+                batch_to_save = []
+                for idx, meta in enumerate(valid_metadata):
+                    emb = embeddings[idx].tolist()
+                    batch_to_save.append({
+                        "part_ref": meta["part_ref"],
+                        "stable_face": face_id,
+                        "rotation_angle": meta["rotation_angle"],
+                        "pose_index": meta.get("pose_index", 0),
+                        "embedding": emb,
+                        "color_code": meta["color_code"],
+                        "color_hex": meta["color_hex"],
+                    })
+
+                supabase_client.save_piece_embeddings_batch(batch_to_save)
+                indexed += len(batch_to_save)  # 2.3 — solo tras save OK
+                print(f"  ✅ batch {i//batch_size + 1}: "
+                      f"{len(batch_to_save)} embeddings ({face_id=})")
             except Exception as e:
-                failed += 1
-                print(f"  ❌ Error cargando {os.path.basename(p)}: {e}")
-                
-        if not imgs_tensor:
-            continue
-            
-        try:
-            batch_tensor = torch.stack(imgs_tensor).to(device)
-            with torch.no_grad():
-                features = model(batch_tensor)
-                features = torch.nn.functional.normalize(features, dim=-1)
-                embeddings = features.cpu().numpy()
-                
-            batch_to_save = []
-            for idx, meta in enumerate(valid_metadata):
-                emb = embeddings[idx].tolist()
-                batch_to_save.append({
-                    "part_ref": meta["part_ref"],
-                    "stable_face": face_id,
-                    "rotation_angle": meta["rotation_angle"],
-                    "pose_index": meta.get("pose_index", 0),
-                    "embedding": emb,
-                    "color_code": meta["color_code"],
-                    "color_hex": meta["color_hex"],
-                })
-                indexed += 1
-                label = f"rot{meta['rotation_angle']:03d}" if meta['rotation_angle'] else "iso"
-                print(f"  ✅ [{label}] {meta['part_ref']} ({meta['color_hex']})")
-                
-            supabase_client.save_piece_embeddings_batch(batch_to_save)
-        except Exception as e:
-            failed += len(valid_metadata)
-            print(f"  ❌ Error extrayendo embeddings para lote: {e}")
-            
+                failed += len(valid_metadata)
+                print(f"  ❌ Error en lote {i//batch_size + 1}: {e}")
+
     return indexed, failed
 
 

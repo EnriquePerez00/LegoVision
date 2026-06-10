@@ -1,0 +1,12 @@
+# YOLO11n-pose dataset config — camara lateral
+# Mismos keypoints canonicos que en cenital.
+
+path: ../data/yolo_pose_lateral
+train: images/train
+val: images/train
+
+kpt_shape: [9, 3]
+flip_idx: [1, 0, 3, 2, 5, 4, 7, 6, 8]
+
+names:
+  0: lego_piece
