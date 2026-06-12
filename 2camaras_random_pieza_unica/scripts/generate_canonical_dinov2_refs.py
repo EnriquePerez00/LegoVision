@@ -201,6 +201,19 @@ def main():
     )
     scene = bpy.context.scene
 
+    # EEVEE Optimizations (TAA=8, bloom/SSR/AO=False)
+    try:
+        scene.eevee.taa_render_samples = 8
+        if hasattr(scene.eevee, "use_bloom"):
+            scene.eevee.use_bloom = False
+        if hasattr(scene.eevee, "use_ssr"):
+            scene.eevee.use_ssr = False
+        if hasattr(scene.eevee, "use_gtao"):
+            scene.eevee.use_gtao = False
+        log.info("[opt] EEVEE canonical: TAA=8, bloom/SSR/AO=False")
+    except Exception as e:
+        log.warning(f"[opt] EEVEE optim parcial: {e}")
+
     total_rendered = 0
     total_failed = 0
     n_rots = int(pa.rotations)
@@ -315,7 +328,7 @@ def main():
 
     metadata["total_rendered"] = total_rendered
     metadata["total_failed"] = total_failed
-    metadata_path = os.path.join(pa.output_dir, "metadata.json")
+    metadata_path = os.path.join(pa.output_dir, f"metadata_worker_{os.getpid()}.json")
     with open(metadata_path, "w", encoding="utf-8") as f:
         json.dump(metadata, f, indent=2, ensure_ascii=False)
     log.info(f"Metadata escrito: {metadata_path} "

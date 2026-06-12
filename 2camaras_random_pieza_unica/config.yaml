@@ -34,81 +34,60 @@ scene:
     left_enabled: true
     right_enabled: true
   lighting:
-    # ─────────────────────────────────────────────────────────────────
-    # SETUP DOMO INDUSTRIAL (canónico desde 2026-09-06b)
-    # ─────────────────────────────────────────────────────────────────
-    # Sustituye al setup `Ring + Bars` (61 W, world 0.05) que producía
-    # renders demasiado oscuros (problema reportado: 3023 Trans-Brown
-    # detectado como gris, Red detectado como negro). El nuevo setup
-    # sigue las especificaciones de `setup_lighting_only.py`:
-    # 3 luces blancas estándar (sin polarizador) + world gris neutro
-    # con strength alto (fill ambiental fuerte) + view transform
-    # `Standard` con look `Medium Contrast`.
-    #
-    # Topología (escalada a Blender Units, 1 BU = 0.1 m = 10 cm):
-    #
-    #   1. Key Cenital  AREA SQUARE 4.0 BU @ (0,0,2.5)   apuntando -Z   15 W
-    #   2. Fill +Y      AREA RECT 3.0x1.0  @ (0,+1.5,0.5) track Camera_Target  5 W
-    #   3. Fill -Y      AREA RECT 3.0x1.0  @ (0,-1.5,0.5) track Camera_Target  5 W
-    #
-    # Valores en metros (canónico spec original):
-    #   Key      0.4 m square @ (0,0,0.25) m, 15 W
-    #   Fill +Y  0.3 x 0.1 m  @ (0,+0.15,0.05) m, 5 W
-    #   Fill -Y  0.3 x 0.1 m  @ (0,-0.15,0.05) m, 5 W
-    #
-    # Diferencias vs setup anterior:
-    #   - Áreas mucho mayores → luz difusa (no puntual), sombras suaves.
-    #   - World strength 0.4 (vs 0.05) → fill ambiental fuerte que evita
-    #     que zonas en sombra colapsen a negro.
-    #   - specular_factor=1.0 (vs 0.1) → ABS reflecta normalmente, no se
-    #     atenúa el componente difuso percibido.
-    #   - View transform `Standard` (no `Filmic`) → sin rolloff de altas,
-    #     RGB lineal preservado para chromaticity-based color inference.
-    #
-    # Energía total: 25 W (15 cenital + 2x 5 fills). A pesar de ser menor
-    # que los 61 W previos, produce renders ~3-4× más brillantes por las
-    # áreas mayores y el fill ambiental.
-    #
-    # EEVEE features activadas (config: render.eevee.*):
-    #   use_gtao=true, use_ssr=true, use_ssr_refraction=true,
-    #   use_shadow_high_bitdepth=true, use_raytracing=true (Eevee Next).
-    #
-    # Implementación: scripts/generate_test_set.py::setup_machine_vision_lighting
-    # Referencia standalone (Blender script tab): scripts/setup_lighting_only.py
-    # ─────────────────────────────────────────────────────────────────
     industrial_dome:
       key_cenital:
         type: AREA
         shape: SQUARE
-        position_bu: [0.0, 0.0, 2.5]    # equiv 0.25 m sobre el origen
-        size_bu: 4.0                    # equiv 0.4 m de lado
+        position_bu:
+        - 0.0
+        - 0.0
+        - 2.5
+        size_bu: 4.0
         energy_w: 15.0
         specular_factor: 1.0
-        color_rgb: [1.0, 1.0, 1.0]
-        rotation_euler: [0.0, 0.0, 0.0] # apunta -Z global
-        purpose: 'Key light cenital, AREA SQUARE difusa'
+        color_rgb:
+        - 1.0
+        - 1.0
+        - 1.0
+        rotation_euler:
+        - 0.0
+        - 0.0
+        - 0.0
+        purpose: Key light cenital, AREA SQUARE difusa
       fill_lateral_pos_y:
         type: AREA
         shape: RECTANGLE
-        position_bu: [0.0, 1.5, 0.5]    # equiv (0,+0.15,0.05) m
-        size_x_bu: 3.0                  # 0.3 m largo
-        size_y_bu: 1.0                  # 0.1 m ancho
-        energy_w: 5.0
-        specular_factor: 1.0
-        color_rgb: [1.0, 1.0, 1.0]
-        track_to: Camera_Target
-        purpose: 'Fill lateral +Y, AREA RECTANGLE difusa apuntando al centro'
-      fill_lateral_neg_y:
-        type: AREA
-        shape: RECTANGLE
-        position_bu: [0.0, -1.5, 0.5]   # equiv (0,-0.15,0.05) m
+        position_bu:
+        - 0.0
+        - 1.5
+        - 0.5
         size_x_bu: 3.0
         size_y_bu: 1.0
         energy_w: 5.0
         specular_factor: 1.0
-        color_rgb: [1.0, 1.0, 1.0]
+        color_rgb:
+        - 1.0
+        - 1.0
+        - 1.0
         track_to: Camera_Target
-        purpose: 'Fill lateral -Y, AREA RECTANGLE difusa apuntando al centro'
+        purpose: Fill lateral +Y, AREA RECTANGLE difusa apuntando al centro
+      fill_lateral_neg_y:
+        type: AREA
+        shape: RECTANGLE
+        position_bu:
+        - 0.0
+        - -1.5
+        - 0.5
+        size_x_bu: 3.0
+        size_y_bu: 1.0
+        energy_w: 5.0
+        specular_factor: 1.0
+        color_rgb:
+        - 1.0
+        - 1.0
+        - 1.0
+        track_to: Camera_Target
+        purpose: Fill lateral -Y, AREA RECTANGLE difusa apuntando al centro
       color_management:
         view_transform: Standard
         look: Medium Contrast
@@ -117,9 +96,7 @@ scene:
         use_ssr: true
         use_ssr_refraction: true
         use_shadow_high_bitdepth: true
-        use_raytracing: true            # solo Eevee Next 4.2+
-    # Setup `Ring + Bars` (legacy intermedio, ~61 W). Mantenido por
-    # referencia histórica; NO se usa ya en ningún script.
+        use_raytracing: true
     machine_vision:
       ring_cenital:
         type: AREA
@@ -127,12 +104,12 @@ scene:
         position_bu:
         - 0.0
         - 0.0
-        - 1.6                  # 16 cm sobre la cinta
-        size_bu: 0.6           # radio del anillo (~6 cm)
+        - 1.6
+        size_bu: 0.6
         energy_w: 25.0
-        specular_factor: 0.1   # filtro polarizador simulado
-        color_temp_K: 5500.0   # luz de día neutra (Blackbody)
-        purpose: 'Ring LED cenital industrial con polarizador'
+        specular_factor: 0.1
+        color_temp_K: 5500.0
+        purpose: Ring LED cenital industrial con polarizador
       bar_lateral_left:
         type: AREA
         shape: RECTANGLE
@@ -140,13 +117,13 @@ scene:
         - 1.5
         - -0.6
         - 0.5
-        size_x_bu: 0.8         # longitud de la barra (~8 cm)
-        size_y_bu: 0.15        # ancho (~1.5 cm)
+        size_x_bu: 0.8
+        size_y_bu: 0.15
         energy_w: 18.0
         specular_factor: 0.1
         color_temp_K: 5500.0
         track_to: Camera_Target
-        purpose: 'Bar LED lateral izquierda flanqueando cam lateral'
+        purpose: Bar LED lateral izquierda flanqueando cam lateral
       bar_lateral_right:
         type: AREA
         shape: RECTANGLE
@@ -160,45 +137,63 @@ scene:
         specular_factor: 0.1
         color_temp_K: 5500.0
         track_to: Camera_Target
-        purpose: 'Bar LED lateral derecha flanqueando cam lateral'
-    # Setup legacy (caja de luz 4600 W). Se mantiene como referencia
-    # histórica del setup anterior — NO se utiliza ya en ningún script.
-    # Eliminar tras validación visual del nuevo MV setup.
+        purpose: Bar LED lateral derecha flanqueando cam lateral
     lab_lightbox_legacy:
       main_dome:
         type: AREA
-        position_bu: [0.0, 0.0, 12.0]
+        position_bu:
+        - 0.0
+        - 0.0
+        - 12.0
         size_x_bu: 35.0
         size_y_bu: 35.0
         energy_w: 2000.0
-        color_rgb: [1.0, 1.0, 1.0]
+        color_rgb:
+        - 1.0
+        - 1.0
+        - 1.0
       wall_panels:
         type: AREA
         positions_bu:
-          N: [0.0, 12.0, 6.0]
-          S: [0.0, -12.0, 6.0]
-          E: [12.0, 0.0, 6.0]
-          W: [-12.0, 0.0, 6.0]
-        target_bu: [0.0, 0.0, 0.0]
+          N:
+          - 0.0
+          - 12.0
+          - 6.0
+          S:
+          - 0.0
+          - -12.0
+          - 6.0
+          E:
+          - 12.0
+          - 0.0
+          - 6.0
+          W:
+          - -12.0
+          - 0.0
+          - 6.0
+        target_bu:
+        - 0.0
+        - 0.0
+        - 0.0
         size_x_bu: 20.0
         size_y_bu: 12.0
         energy_w: 600.0
       ground_fill:
         type: AREA
-        position_bu: [0.0, 0.0, -0.5]
+        position_bu:
+        - 0.0
+        - 0.0
+        - -0.5
         size_x_bu: 30.0
         size_y_bu: 30.0
         energy_w: 200.0
     randomize_in_training: true
     energy_var_pct: 0.03
-    color_temp_K_center: 5500.0   # alineado con MV setup (antes 4100K).
+    color_temp_K_center: 5500.0
     color_temp_K_range: 150.0
     position_jitter_bu: 0.1
     randomize_for_references: false
   world:
-    # Setup Domo Industrial (canónico): gris neutro 0.5,0.5,0.5 con
-    # strength 0.4 → fill ambiental fuerte que evita zonas oscuras
-    # colapsando a negro y mantiene neutralidad cromática del fondo.
     color:
     - 0.5
     - 0.5
@@ -226,7 +221,6 @@ scene:
     color_hex: '#000000'
     roughness: 1.0
     purpose: 'Fondo negro para camara lateral: piezas resaltan en silueta'
-
 cameras:
   common:
     type: PERSP
@@ -243,9 +237,10 @@ cameras:
     position:
     - 0.0
     - 0.0
-    - 15.0
+    - 30.0
     pitch_deg: 90.0
-    scale_px_per_mm: 3.2
+    scale_px_per_mm: 10.4296288
+    focal_length_mm: 55.0
     role: dinov2_visual_similarity + oriented_size_2d
     dinov2_enabled: true
   lateral:
@@ -254,15 +249,15 @@ cameras:
     - 0.0
     - 2.5
     pitch_deg: 0.0
-    scale_px_per_mm: 3.2
+    scale_px_per_mm: 10.24
+    focal_length_mm: 27.0
     role: height_profile_verification + dinov2_visual_similarity
     dinov2_enabled: true
-
 render:
   engine: BLENDER_EEVEE
   resolution:
-    width: 640
-    height: 640
+    width: 2048
+    height: 2048
   eevee:
     taa_render_samples: 16
   cycles:
@@ -271,15 +266,13 @@ render:
     samples_final: 64
   film_transparent: false
   gpu_acceleration: METAL
-
 pieces:
-  # Las 38 refs unicas del set 75078-1 (todas las geometrias del inventario).
   selected_parts:
   - '14769'
   - '15391'
   - '15392'
   - '2335'
-  - '2412b'
+  - 2412b
   - '2419'
   - '2445'
   - '2449'
@@ -302,9 +295,9 @@ pieces:
   - '3710'
   - '3795'
   - '3832'
-  - '3839b'
+  - 3839b
   - '4073'
-  - '4589b'
+  - 4589b
   - '51739'
   - '60481'
   - '61184'
@@ -394,7 +387,6 @@ pieces:
     - 16.0
     - 16.0
     - 3.2
-    # --- Refs adicionales del set 75078-1 (footprint_L, footprint_W, height) ---
     '14769':
     - 16.0
     - 16.0
@@ -411,7 +403,7 @@ pieces:
     - 16.0
     - 8.0
     - 3.2
-    '2412b':
+    2412b:
     - 16.0
     - 8.0
     - 3.2
@@ -471,7 +463,7 @@ pieces:
     - 16.0
     - 16.0
     - 3.2
-    '3839b':
+    3839b:
     - 24.0
     - 8.0
     - 3.2
@@ -479,7 +471,7 @@ pieces:
     - 8.0
     - 8.0
     - 3.2
-    '4589b':
+    4589b:
     - 8.0
     - 8.0
     - 9.6
@@ -519,31 +511,192 @@ pieces:
     brick: 9.6
     plate: 3.2
     tile: 3.2
-  # 6 colores REALES del inventario del set 75078-1 (BrickLink codes).
-  # Cada entrada es {code, name, hex, rgb_255} - usados por el comparador de
-  # color cenital y lateral (ver run_evaluation.py find_closest_catalog_color).
   set_colors:
-    - {code: '1',  name: 'White',             hex: '#FFFFFF', rgb: [242, 243, 242]}
-    - {code: '5',  name: 'Red',               hex: '#C91A09', rgb: [201,  26,   9]}
-    - {code: '11', name: 'Black',             hex: '#1B1B1B', rgb: [ 27,  42,  52]}
-    - {code: '13', name: 'Trans-Brown',       hex: '#583927', rgb: [101,  77,  47]}
-    - {code: '17', name: 'Trans-Red',         hex: '#C91A09', rgb: [200,  85,  61]}
-    - {code: '85', name: 'Dark Bluish Gray',  hex: '#646464', rgb: [ 99,  95,  97]}
-    - {code: '86', name: 'Light Bluish Gray', hex: '#A0A5A9', rgb: [160, 165, 169]}
-  # Lista plana de hex (legacy, usada por scripts de generacion de refs DINOv2).
+  - code: 1
+    name: White
+    hex: '#F9F9F9'
+  - code: 10
+    name: Dark Gray
+    hex: '#6C6D5B'
+  - code: 103
+    name: Bright Light Yellow
+    hex: '#FFEC6C'
+  - code: 108
+    name: Trans-Bright Green
+    hex: '#56E646'
+  - code: 11
+    name: Black
+    hex: '#202020'
+  - code: 115
+    name: Pearl Gold
+    hex: '#CB9B2A'
+  - code: 12
+    name: Trans-Clear
+    hex: '#FEFEFE'
+  - code: 13
+    name: Trans-Brown
+    hex: '#625E51'
+  - code: 14
+    name: Trans-Dark Blue
+    hex: '#001F9F'
+  - code: 148
+    name: Color 148
+    hex: '#808080'
+  - code: 15
+    name: Trans-Light Blue
+    hex: '#AEE9EF'
+  - code: 156
+    name: Medium Azure
+    hex: '#68C3E2'
+  - code: 16
+    name: Trans-Neon Green
+    hex: '#BFFE00'
+  - code: 17
+    name: Trans-Red
+    hex: '#C91A09'
+  - code: 19
+    name: Trans-Yellow
+    hex: '#C9AF00'
+  - code: 2
+    name: Tan
+    hex: '#E3CC9D'
+  - code: 20
+    name: Trans-Green
+    hex: '#227740'
+  - code: 22
+    name: Chrome Silver
+    hex: '#DFDFDF'
+  - code: 25
+    name: Salmon
+    hex: '#F16F5D'
+  - code: 27
+    name: Rust
+    hex: '#FF8014'
+  - code: 272
+    name: Color 272
+    hex: '#808080'
+  - code: 28
+    name: Nougat
+    hex: '#CF9067'
+  - code: 288
+    name: Color 288
+    hex: '#808080'
+  - code: 297
+    name: Color 297
+    hex: '#808080'
+  - code: 3
+    name: Yellow
+    hex: '#F4CC2E'
+  - code: 320
+    name: Color 320
+    hex: '#808080'
+  - code: 33
+    name: Light Yellow
+    hex: '#FAE595'
+  - code: 38
+    name: Light Green
+    hex: '#C1D9B7'
+  - code: 39
+    name: Dark Turquoise
+    hex: '#00828E'
+  - code: 4
+    name: Orange
+    hex: '#CF650F'
+  - code: 42
+    name: Medium Blue
+    hex: '#7396C8'
+  - code: 5
+    name: Red
+    hex: '#C30025'
+  - code: 50
+    name: Trans-Dark Pink
+    hex: '#FB96AB'
+  - code: 6
+    name: Green
+    hex: '#24793D'
+  - code: 67
+    name: Metallic Silver
+    hex: '#A4A8B3'
+  - code: 69
+    name: Dark Tan
+    hex: '#948972'
+  - code: 7
+    name: Blue
+    hex: '#0032B1'
+  - code: 70
+    name: Metallic Green
+    hex: '#889A5E'
+  - code: 73
+    name: Medium Violet
+    hex: '#6773C9'
+  - code: 8
+    name: Brown
+    hex: '#573826'
+  - code: 84
+    name: Copper
+    hex: '#954926'
+  - code: 85
+    name: Dark Bluish Gray
+    hex: '#6B6D67'
+  - code: 86
+    name: Light Bluish Gray
+    hex: '#A2A1A3'
+  - code: 88
+    name: Reddish Brown
+    hex: '#5F3109'
+  - code: 95
+    name: Flat Silver
+    hex: '#888687'
+  - code: 98
+    name: Trans-Orange
+    hex: '#EF8E1B'
   reference_colors_hex:
-  - "FFFFFF"
-  - "C91A09"
-  - "1B1B1B"
-  - "583927"
-  - "C91A09"
-  - "646464"
-  - "A0A5A9"
-  test_color_hex: A0A5A9
-  bevel_modifier: true
-  origin_type: ORIGIN_GEOMETRY
-  origin_center: BOUNDS
-
+  - 'F9F9F9'
+  - '6C6D5B'
+  - 'FFEC6C'
+  - '56E646'
+  - '202020'
+  - 'CB9B2A'
+  - 'FEFEFE'
+  - '625E51'
+  - '001F9F'
+  - '808080'
+  - 'AEE9EF'
+  - '68C3E2'
+  - 'BFFE00'
+  - 'C91A09'
+  - 'C9AF00'
+  - 'E3CC9D'
+  - '227740'
+  - 'DFDFDF'
+  - 'F16F5D'
+  - 'FF8014'
+  - '808080'
+  - 'CF9067'
+  - '808080'
+  - '808080'
+  - 'F4CC2E'
+  - '808080'
+  - 'FAE595'
+  - 'C1D9B7'
+  - '00828E'
+  - 'CF650F'
+  - '7396C8'
+  - 'C30025'
+  - 'FB96AB'
+  - '24793D'
+  - 'A4A8B3'
+  - '948972'
+  - '0032B1'
+  - '889A5E'
+  - '6773C9'
+  - '573826'
+  - '954926'
+  - '6B6D67'
+  - 'A2A1A3'
+  - '5F3109'
+  - '888687'
+  - 'EF8E1B'
 yolo:
   dataset:
     pieces_per_frame: 1
@@ -574,7 +727,6 @@ yolo:
   weights:
     cenital: models/yolo_cenital.pt
     lateral: models/yolo_lateral.pt
-
 dinov2:
   model:
     name: dinov2_vits14
@@ -629,37 +781,28 @@ dinov2:
     clear_before_index: true
     store_raw_embedding: true
     store_projected_embedding: true
-
 stable_poses:
   cache_path: data/stable_poses_cache.json
-  # TARPS - Tipping-Aware Random Pose Selection
-  # (ver docs/stable_pose_selection_rule.md)
-  # Umbral mínimo para considerar una pose como "estable" en la fase de
-  # selección previa a render YOLO. Si ninguna pose de la pieza llega al
-  # umbral, se aplica fallback determinista argmax(tipping_energy_ratio).
   tarps_min_tipping: 0.04
-  # Campos legacy mantenidos por compatibilidad con scripts antiguos.
-  # NO se usan en la nueva regla de selección.
   render_min_stability: 0.01
   min_contact_dimension_mm: 4.0
-
 inference:
   evaluation_script: scripts/run_evaluation.py
   report_output: data/eval_report.json
   calibration:
-    px_per_mm_cenital: 3.2
-    px_per_mm_lateral: 3.2
-    camera_dist_mm: 150.0
+    px_per_mm_cenital: 10.4296288
+    px_per_mm_lateral: 10.24
+    camera_dist_mm: 300.0
   segmentation:
     method: chromaticity
     black_bg_threshold: 5
     bg_corner_dark_thresh: 15
     chromaticity_dist_thresh: 0.04
     luminance_min_thresh: 30
-    morphology_kernel_size: 3
+    morphology_kernel_size: 7
     morphology_close_iterations: 2
     morphology_open_iterations: 1
-    min_contour_area: 10
+    min_contour_area: 50
   query_canvas:
     size: 224
     scale_factor: 0.325
@@ -669,23 +812,25 @@ inference:
     - 0
   size_scoring:
     sigma_mm: 5.0
-  height_validation:
-    stud_offset_mm: 0.9
-    tolerance_mm: 2.2
-    penalty_factor: 0.01
-  camera_weights:
-    cenital: 0.7
-    lateral: 0.3
-
+    hybrid_threshold_mm2: 150.0
+    abs_tolerance_mm2: 35.0
+    rel_tolerance_pct: 20.0
+  color_calibration:
+    ccm_cenital:
+    - [ 0.77034800, 0.05751623, 0.16801945 ]
+    - [ 0.20230499, 0.64920836, 0.16135712 ]
+    - [ 0.20267209, 0.06575232, 0.74532955 ]
+    ccm_lateral:
+    - [ 0.68861177, 0.12787984, 0.23842127 ]
+    - [ 0.30811314, 0.52769674, 0.22694172 ]
+    - [ 0.32680402, 0.10970321, 0.62782480 ]
 database:
   provider: supabase
   embeddings_table: piece_embeddings
-
 sets:
   all_set_ids:
   - 75078-1
   default_set_id: 75078-1
-
 logging:
   enabled: true
   dir: logs

@@ -85,6 +85,55 @@ class LegoProjectionHead(nn.Module):
         return F.normalize(features, p=2, dim=1)
 
 
+def map_hex_to_bricklink_code(hex_str):
+    if not hex_str:
+        return "11"
+    hex_str = hex_str.lstrip("#")
+    if len(hex_str) != 6:
+        return "11"
+    try:
+        r = int(hex_str[0:2], 16)
+        g = int(hex_str[2:4], 16)
+        b = int(hex_str[4:6], 16)
+    except ValueError:
+        return "11"
+    
+    ref_rgbs = {
+        "1":   [[255, 255, 255], [249, 249, 249]],  # White
+        "7":   [[0, 50, 177], [10, 60, 159]],       # Blue
+        "6":   [[36, 121, 61], [0, 170, 0]],        # Green
+        "156": [[104, 195, 226]],                   # Medium Azure
+        "11":  [[32, 32, 32], [27, 27, 27], [0, 0, 0]], # Black
+        "86":  [[162, 161, 163], [160, 165, 169], [157, 158, 159]], # Light Bluish Gray
+        "85":  [[90, 90, 90], [100, 100, 100], [107, 109, 103], [131, 134, 131]], # Dark Bluish Gray
+        "5":   [[195, 0, 37], [201, 26, 9], [172, 46, 90]], # Red
+        "15":  [[174, 233, 239]],                   # Trans-Light Blue
+        "3":   [[244, 204, 46], [242, 205, 55]],    # Yellow
+        "55":  [[94, 116, 140], [88, 112, 131]],    # Sand Blue
+        "59":  [[114, 0, 18]],                      # Dark Red
+        "2":   [[223, 209, 165], [227, 204, 157]],  # Tan
+        "95":  [[136, 134, 135], [137, 147, 149]],  # Flat Silver
+        "16":  [[191, 254, 0]],                     # Trans-Neon Green
+        "88":  [[95, 49, 9], [92, 30, 15]],         # Reddish Brown
+        "14":  [[0, 31, 159]],                      # Trans-Dark Blue
+        "98":  [[240, 143, 28], [239, 142, 27]],    # Trans-Orange
+        "69":  [[148, 137, 114], [159, 143, 117]],  # Dark Tan
+        "297": [[203, 155, 42]],                    # Pearl Gold
+        "80":  [[24, 70, 50]],                      # Dark Green
+        "12":  [[254, 254, 254]],                   # Trans-Clear
+    }
+    
+    best_code = "11"
+    min_dist = float("inf")
+    for code, rgbs in ref_rgbs.items():
+        for ref_rgb in rgbs:
+            dist = (r - ref_rgb[0])**2 + (g - ref_rgb[1])**2 + (b - ref_rgb[2])**2
+            if dist < min_dist:
+                min_dist = dist
+                best_code = code
+    return best_code
+
+
 class LegoKNNClassifier:
     def __init__(self, k: int = 5, top_k_classes: int = 5):
         self.k = k
@@ -230,13 +279,14 @@ class LegoKNNClassifier:
             else:
                 vec = np.array(emb, dtype=np.float32)
                 
+            bl_color_code = map_hex_to_bricklink_code(row.get("color_hex"))
             self._ref_embeddings.append({
                 "part_ref": row["part_ref"],
                 "face": row["stable_face"],
                 "angle": row["rotation_angle"],
                 "embedding": vec,
                 "color_hex": row.get("color_hex"),
-                "color_code": row.get("color_code"),
+                "color_code": bl_color_code,
             })
         print(f"[KNNClassifier] {len(self._ref_embeddings)} embeddings cargados (Projected={self.is_projected_mode}, Multimodal={is_multimodal}).")
 

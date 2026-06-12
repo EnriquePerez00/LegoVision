@@ -267,6 +267,20 @@ def main():
         render_res=pa.render_res, film_transparent=False,
     )
     scene = bpy.context.scene
+    try:
+        if hasattr(scene.eevee, "taa_render_samples"):
+            scene.eevee.taa_render_samples = 8
+        if hasattr(scene.eevee, "render_samples"):
+            scene.eevee.render_samples = 8
+        if hasattr(scene.eevee, "use_bloom"):
+            scene.eevee.use_bloom = False
+        if hasattr(scene.eevee, "use_ssr"):
+            scene.eevee.use_ssr = False
+        if hasattr(scene.eevee, "use_gtao"):
+            scene.eevee.use_gtao = False
+        print("[opt] EEVEE Optimized: TAA samples=8, bloom/SSR/AO=False")
+    except Exception as e:
+        print(f"[opt] EEVEE optimization failed: {e}")
     active_cam = cam_cenital if pa.camera == "cenital" else cam_lateral
 
     saved = 0

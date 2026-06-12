@@ -1,4 +1,17 @@
 # -*- coding: utf-8 -*-
+
+# ============================================================
+# DEPRECADO: Este script ha sido reemplazado por
+#            generate_report_inference.py
+#
+# Uso del nuevo script unificado:
+#   python generate_report_inference.py \
+#       --eval       <eval_report.json> \
+#       --images_dir <directorio_imagenes> \
+#       --out        <directorio_salida>/
+#
+# Este fichero se mantiene por compatibilidad histórica.
+# ============================================================
 """generate_inference_300_errors_report.py
 
 Reporte focalizado en ERRORES de la ultima inferencia sobre el dataset

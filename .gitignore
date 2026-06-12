@@ -89,6 +89,31 @@ data/ref_multiangle/
 data/test_e2e/
 data/iter*/
 
+# --- Imágenes de renders sintéticos (Blender/Eevee) ---
+# Imágenes cenital/lateral de samples
+**/sample*.png
+**/sample*.jpg
+**/sample*.jpeg
+# Renders de poses y validación
+**/render_*.png
+**/render_*.jpg
+**/pose_*.png
+**/pose_*.jpg
+# Imágenes de inferencia test
+**/inferencia_*.png
+**/inferencia_*.jpg
+# Imágenes de train/val YOLO (regenerables)
+**/images/train/
+**/images/val/
+**/images/test/
+
+# --- Datasets de test/sample sets (regenerables) ---
+**/data/300/
+**/data/test_*/
+**/data/test500*/
+**/data/inferencia_test*/
+**/data/tmp/
+
 # --- YOLO datasets (regenerables ~3 GB) ---
 **/yolo_cenital/
 **/yolo_cenital_full/
@@ -105,12 +130,24 @@ data/iter*/
 **/yolo_lateral_processed/
 **/yolo_lateral_v*_legacy/
 **/yolo_lateral0/
+**/yolo_pose_cenital/
+**/yolo_pose_lateral/
 **/dual_test_*/
 
 # --- DINOv2 referencias (regenerables ~500 MB) ---
 **/dinov2_refs/
+**/dinov2_refs_*/
 **/dinov2_refs_full/
 **/simulated_dinov2/
+
+# --- Color calibration (regenerable) ---
+**/color_calibration/
+**/color_calibration_*/
+
+# --- Caches YOLO ---
+**/labels/train.cache
+**/labels/val.cache
+**/labels/test.cache
 
 # --- Validation / inference renders ---
 **/validation_renders*/
@@ -123,11 +160,17 @@ data/iter*/
 **/_bricklink_cache/
 **/3dposes/
 
+# --- JSONs de evaluación/resultados generados ---
+eval_report*.json
+eval_results*.json
+eval_report_*.json
+inference_*_eval.json
+*_metadata.json
+*_eval.json
+
 # --- Caches ---
 *_cache.json
 stable_poses_cache.json
-eval_report.json
-eval_results*.json
 selected_parts.json
 
 # --- Embeddings ---
@@ -147,6 +190,7 @@ selected_parts.json
 *.pt
 **/yolo_runs/
 **/runs/
+**/runs_pose/
 training/runs/
 runs/
 yolo11n.pt

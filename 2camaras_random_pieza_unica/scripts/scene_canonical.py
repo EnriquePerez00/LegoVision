@@ -51,15 +51,15 @@ SCREEN_T_BU = 0.05    # 0.5 cm espesor
 SCREEN_H_BU = 1.0     # 10 cm alto
 SCREEN_L_BU = 12.0    # 120 cm largo
 
-CAM_CEN_LOC = (0.0, 0.0, 1.5)        # cenital @ 15 cm
+CAM_CEN_LOC = (0.0, 0.0, 3.0)        # cenital @ 30 cm
 CAM_LAT_LOC = (1.5, 0.0, 0.25)       # lateral @ (15 cm, 0, 2.5 cm)
 CAM_FOCAL_MM = 27.0
 CAM_SENSOR_MM = 36.0
 
 # FOV cenital en BU (en el plano de la cinta z=0):
-#   half_FOV = z_cam * (sensor/2 / focal) = 1.5 * (18/27) = 1.0 BU = 10 cm
-HALF_FOV_BU = 1.0
-FOV_FULL_MM = int(2 * HALF_FOV_BU * 100)  # 200 mm
+#   half_FOV = z_cam * (sensor/2 / focal) = 3.0 * (18/55) = 0.9818 BU
+HALF_FOV_BU = 3.0 * (18.0 / 55.0)
+FOV_FULL_MM = int(2 * HALF_FOV_BU * 100)  # ~196 mm
 MARGIN_BU_DEFAULT = 0.05                  # 5 mm margen al borde
 MAX_PLACEMENT_ATTEMPTS_DEFAULT = 200
 
@@ -150,7 +150,10 @@ def setup_camera(name, location):
     track.track_axis = "TRACK_NEGATIVE_Z"
     track.up_axis = "UP_Y"
     cam.data.type = "PERSP"
-    cam.data.lens = CAM_FOCAL_MM
+    if name == "Cam_Cenital" or "Cenital" in name:
+        cam.data.lens = 55.0
+    else:
+        cam.data.lens = CAM_FOCAL_MM
     cam.data.clip_start = 0.001
     cam.data.clip_end = 100.0
     return cam

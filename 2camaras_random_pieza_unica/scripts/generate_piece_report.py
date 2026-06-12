@@ -59,15 +59,39 @@ def get_sam():
 
 
 def sam_mask(img, bbox_norm):
-    w, h = img.size
-    x1 = max(0, int(bbox_norm[0] * w))
-    y1 = max(0, int(bbox_norm[1] * h))
-    x2 = min(w, int(bbox_norm[2] * w))
-    y2 = min(h, int(bbox_norm[3] * h))
     try:
-        results = get_sam()(np.array(img), bboxes=[[x1, y1, x2, y2]], verbose=False)
+        # Convert to RGB to avoid alpha-channel mismatch issues
+        img_rgb = img.convert("RGB")
+        w, h = img_rgb.size
+        x1 = max(0, int(bbox_norm[0] * w))
+        y1 = max(0, int(bbox_norm[1] * h))
+        x2 = min(w, int(bbox_norm[2] * w))
+        y2 = min(h, int(bbox_norm[3] * h))
+        
+        results = get_sam()(np.array(img_rgb), bboxes=[[x1, y1, x2, y2]], verbose=False)
         if results and results[0].masks is not None:
-            return (results[0].masks.data[0].cpu().numpy().astype(np.uint8) * 255)
+            mask = results[0].masks.data[0].cpu().numpy().astype(np.uint8) * 255
+            
+            # Dynamic Local Background subtraction inside the bbox to eliminate holes/background projections
+            crop_img = img_rgb.crop((x1, y1, x2, y2))
+            crop_arr = np.array(crop_img)
+            h_c, w_c = crop_arr.shape[:2]
+            if h_c > 2 and w_c > 2:
+                edges = np.vstack([
+                    crop_arr[0, :],         # top edge
+                    crop_arr[-1, :],        # bottom edge
+                    crop_arr[:, 0],         # left edge
+                    crop_arr[:, -1]         # right edge
+                ])
+                local_bg = edges.mean(axis=0)
+                dists = np.linalg.norm(crop_arr.astype(np.float32) - local_bg, axis=-1)
+                
+                # Extract the crop mask, zero out bg, and write back to full mask
+                crop_mask = mask[y1:y2, x1:x2].copy()
+                crop_mask[dists < 25.0] = 0
+                mask[y1:y2, x1:x2] = crop_mask
+                
+            return mask
     except Exception:
         pass
     fallback = np.zeros((h, w), dtype=np.uint8)

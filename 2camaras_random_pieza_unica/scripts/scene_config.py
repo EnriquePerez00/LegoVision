@@ -52,7 +52,7 @@ YOLO_FRAMES = 500
 # Proporciones reales: piezas grandes ocupan mas espacio -> menos piezas por frame
 YOLO_PIECES_PER_FRAME_MIN = 20
 YOLO_PIECES_PER_FRAME_MAX = 35
-ALL_SET_IDS = ["75078-1", "911943-1", "75280-1", "75218-1", "75337-1", "10692-1"]
+ALL_SET_IDS = ["75078-1", "911943-1", "75280-1", "75218-1", "75337-1", "10692-1", "75038-1", "31062-1", "75018-1", "6008-1"]
 YOLO_EMPTY_FRAME_RATIO = 0.05
 YOLO_GRID_COLS = [-8.5, -5.0, -1.5, 1.5, 5.0, 8.5]
 

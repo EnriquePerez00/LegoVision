@@ -125,6 +125,69 @@ def get_stable_poses(part_ref):
         return []
 
 
+def calculate_adaptive_rotations(part_obj, pose):
+    """Calcula N_opt y rot_step basado en la simetría rotacional Sz y el Aspect Ratio."""
+    cw = pose.get("contact_stable_width", pose.get("contact_width_mm"))
+    cl = pose.get("contact_stable_length", pose.get("contact_length_mm"))
+    
+    if cw is None or cl is None or min(cw, cl) < 1e-3:
+        ar = 1.0
+    else:
+        ar = max(cw, cl) / min(cw, cl)
+        
+    # Calcular theta_step
+    theta_step = max(10.0, 30.0 - 5.0 * (ar - 1.0))
+    
+    # Calcular Sz usando mathutils.kdtree
+    bpy.context.view_layer.update()
+    v0 = [part_obj.matrix_world @ v.co for v in part_obj.data.vertices]
+    
+    size = max(1, len(v0))
+    kd = mathutils.kdtree.KDTree(size)
+    for i, v in enumerate(v0):
+        kd.insert(v, i)
+    kd.balance()
+    
+    def is_symmetric(angle):
+        orig_rot = part_obj.rotation_euler.copy()
+        part_obj.rotation_mode = 'XYZ'
+        part_obj.rotation_euler.z += angle
+        bpy.context.view_layer.update()
+        
+        v_rot = [part_obj.matrix_world @ v.co for v in part_obj.data.vertices]
+        
+        part_obj.rotation_euler = orig_rot
+        bpy.context.view_layer.update()
+        
+        # Tolerancia dinámica: 5% de la dimensión máxima o 0.05 BU (5mm)
+        tol = max(0.05, 0.05 * max(part_obj.dimensions))
+        matches = 0
+        for v in v_rot:
+            co, index, dist = kd.find(v)
+            if dist < tol:
+                matches += 1
+        return (matches / size) > 0.95
+        
+    if is_symmetric(math.pi / 4.0): # 45 degrees -> circular
+        Sz = float('inf')
+    elif is_symmetric(math.pi / 2.0): # 90 degrees
+        Sz = 4
+    elif is_symmetric(math.pi): # 180 degrees
+        Sz = 2
+    else:
+        Sz = 1
+        
+    if Sz == float('inf'):
+        return 1, 0.0
+        
+    unique_range_deg = 360.0 / Sz
+    n_opt = math.ceil(unique_range_deg / theta_step)
+    n_opt = max(1, int(n_opt))
+    rot_step_rad = math.radians(unique_range_deg / n_opt)
+    
+    return n_opt, rot_step_rad
+
+
 # La definición local de setup_lab_lightbox() se eliminó. Ahora se reusa
 # el setup canónico Machine Vision desde generate_test_set (importado
 # arriba). Si necesitas modificar la iluminación, hazlo en
@@ -310,8 +373,8 @@ def main():
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument("--output_dir", type=str, required=True)
-    parser.add_argument("--rotations", type=int, default=12)
-    parser.add_argument("--render_res", type=int, default=RENDER_RES_DEFAULT,
+    parser.add_argument("--rotations", type=int, default=12, help="Rotaciones por defecto si no se usa heurística.")
+    parser.add_argument("--render_res", type=int, default=384,
                         help="Resolución cuadrada (px). Para refs DINOv2 se "
                              "recomienda 384 (opt 1.4) si la red trabaja a 224.")
     pa = parser.parse_known_args(args_raw)[0]
@@ -408,12 +471,11 @@ def main():
             apply_bevel_modifier(part_obj)
 
             # Rotations
-            n_rots = pa.rotations
-            rot_step = (2 * math.pi) / n_rots
+            n_rots, rot_step = calculate_adaptive_rotations(part_obj, pose)
 
             for rot_i in range(n_rots):
-                rot_deg = int(round(rot_i * (360.0 / n_rots)))
                 rot_rad = rot_i * rot_step
+                rot_deg = int(round(math.degrees(rot_rad)))
 
                 # Apply pose orientation
                 quat = pose.get("orientation_quat")

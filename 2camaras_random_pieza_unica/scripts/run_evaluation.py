@@ -87,41 +87,39 @@ def rgb_to_lab(rgb_val):
 # midieron sobre la pieza 3023 plate 1x2 con las 7 muestras renderizadas
 # (ver scripts/generate_inferencia_test_v2.py). Ver historico legacy en
 # SET_CATALOG_COLORS_LEGACY (cinta azul vieja + setup MV ring+bars).
-SET_CATALOG_COLORS = [
-    {"color_code": "1",  "color_name": "White",             "color_hex": "#FFFFFF", "rgb": [188.8, 190.0, 190.1]},
-    {"color_code": "5",  "color_name": "Red",               "color_hex": "#C91A09", "rgb": [172.7,  46.7,  90.7]},
-    {"color_code": "11", "color_name": "Black",             "color_hex": "#1B1B1B", "rgb": [ 82.8,  84.0,  84.3]},
-    {"color_code": "13", "color_name": "Trans-Brown",       "color_hex": "#583927", "rgb": [127.8, 126.6, 119.5]},
-    {"color_code": "17", "color_name": "Trans-Red",         "color_hex": "#C91A09", "rgb": [165.8,  85.2,  69.7]},
-    {"color_code": "85", "color_name": "Dark Bluish Gray",  "color_hex": "#646464", "rgb": [131.5, 134.1, 131.6]},
-    {"color_code": "86", "color_name": "Light Bluish Gray", "color_hex": "#A0A5A9", "rgb": [157.1, 158.1, 159.4]},
-]
+CCM_CEN = np.array(cfg.inference.color_calibration.ccm_cenital)
+CCM_LAT = np.array(cfg.inference.color_calibration.ccm_lateral)
 
-# Cámara lateral: el contexto óptico es distinto (vista horizontal con
-# pantalla aluminio detrás, ángulo bajo) → los RGB observados varían.
-# Usar este catálogo cuando se llama find_closest_catalog_color con la
-# imagen lateral (parámetro `camera="lateral"`).
-SET_CATALOG_COLORS_LATERAL = [
-    {"color_code": "1",  "color_name": "White",             "color_hex": "#FFFFFF", "rgb": [153.5, 157.3, 158.9]},
-    {"color_code": "5",  "color_name": "Red",               "color_hex": "#C91A09", "rgb": [140.3,  39.6,  77.8]},
-    {"color_code": "11", "color_name": "Black",             "color_hex": "#1B1B1B", "rgb": [ 69.8,  72.2,  73.2]},
-    {"color_code": "13", "color_name": "Trans-Brown",       "color_hex": "#583927", "rgb": [106.0, 107.7, 103.4]},
-    {"color_code": "17", "color_name": "Trans-Red",         "color_hex": "#C91A09", "rgb": [144.7,  73.3,  59.4]},
-    {"color_code": "85", "color_name": "Dark Bluish Gray",  "color_hex": "#646464", "rgb": [110.1, 114.5, 113.6]},
-    {"color_code": "86", "color_name": "Light Bluish Gray", "color_hex": "#A0A5A9", "rgb": [132.2, 135.4, 137.8]},
-]
+def hex_to_rgb(hex_str):
+    hex_str = hex_str.lstrip("#")
+    if len(hex_str) == 6:
+        return np.array([int(hex_str[i:i+2], 16) for i in (0, 2, 4)], dtype=float)
+    return np.array([128.0, 128.0, 128.0])
 
-# Catalogo legacy (cinta azul vieja + setup MV ring+bars). Solo para
-# referencia historica; no se usa en el pipeline actual.
-SET_CATALOG_COLORS_LEGACY = [
-    {"color_code": "1",  "color_name": "White",             "color_hex": "#FFFFFF", "rgb": [242, 243, 242]},
-    {"color_code": "5",  "color_name": "Red",               "color_hex": "#C91A09", "rgb": [201,  26,   9]},
-    {"color_code": "11", "color_name": "Black",             "color_hex": "#1B1B1B", "rgb": [ 27,  42,  52]},
-    {"color_code": "13", "color_name": "Trans-Brown",       "color_hex": "#583927", "rgb": [101,  77,  47]},
-    {"color_code": "17", "color_name": "Trans-Red",         "color_hex": "#C91A09", "rgb": [200,  85,  61]},
-    {"color_code": "85", "color_name": "Dark Bluish Gray",  "color_hex": "#646464", "rgb": [ 99,  95,  97]},
-    {"color_code": "86", "color_name": "Light Bluish Gray", "color_hex": "#A0A5A9", "rgb": [160, 165, 169]},
-]
+SET_CATALOG_COLORS = []
+SET_CATALOG_COLORS_LATERAL = []
+
+for sc in cfg.pieces.set_colors:
+    code_str = str(sc["code"])
+    hex_color = sc["hex"]
+    name = sc["name"]
+    rgb_nominal = hex_to_rgb(hex_color)
+    
+    rgb_cen = np.clip(CCM_CEN @ rgb_nominal, 0.0, 255.0).tolist()
+    rgb_lat = np.clip(CCM_LAT @ rgb_nominal, 0.0, 255.0).tolist()
+    
+    SET_CATALOG_COLORS.append({
+        "color_code": code_str,
+        "color_name": name,
+        "color_hex": hex_color,
+        "rgb": rgb_cen
+    })
+    SET_CATALOG_COLORS_LATERAL.append({
+        "color_code": code_str,
+        "color_name": name,
+        "color_hex": hex_color,
+        "rgb": rgb_lat
+    })
 
 
 def find_closest_catalog_color(avg_rgb, camera="cenital"):
@@ -321,6 +319,35 @@ def segment_crop_sam(img_full: Image.Image, bbox_norm: list) -> np.ndarray:
 CINTA_BG_RGB = (37, 65, 84)
 
 
+def neutralize_lab(arr: np.ndarray) -> np.ndarray:
+    """Normalización LAB-neutral: elimina info de color (A, B) de los pixels
+    de la pieza, preservando solo luminancia (forma, studs, bordes, sombras).
+
+    El fondo (cinta azul petroleo) NO se toca — solo los pixels de la pieza.
+    Esto hace al embedding DINOv2 invariante al color:
+      - Refs neutralizadas + queries neutralizadas → mismo dominio geometría pura.
+      - Evita confusión entre piezas similares de distinto color.
+      - Mejora similitud query↔ref en colores cromáticos (+0.03-0.10).
+
+    Args:
+        arr: np.uint8 RGB array HxWx3 con fondo cinta (37,65,84).
+    Returns:
+        np.uint8 RGB array con pixels de pieza llevados a gris neutro (A=B=128).
+    """
+    try:
+        import cv2 as _cv2
+        bg = np.array([37.0, 65.0, 84.0], dtype=np.float32)
+        piece_mask = np.linalg.norm(arr.astype(np.float32) - bg, axis=-1) > 20.0
+        if not np.any(piece_mask):
+            return arr
+        lab = _cv2.cvtColor(arr, _cv2.COLOR_RGB2LAB)
+        lab[piece_mask, 1] = 128   # canal A → crominancia cero
+        lab[piece_mask, 2] = 128   # canal B → crominancia cero
+        return _cv2.cvtColor(lab, _cv2.COLOR_LAB2RGB)
+    except Exception:
+        return arr
+
+
 def apply_sam_mask_to_crop(crop_img: Image.Image, mask: np.ndarray,
                             bg_color=CINTA_BG_RGB) -> Image.Image:
     """Reemplaza los pixels fuera de la mascara SAM con `bg_color`
@@ -346,6 +373,10 @@ def apply_sam_mask_to_crop(crop_img: Image.Image, mask: np.ndarray,
             mask = _cv2.resize(mask, (w, h), interpolation=_cv2.INTER_NEAREST)
         mask_bool = mask > 0
         arr[~mask_bool] = bg_color
+        # Neutralización LAB: elimina color de la pieza, preserva geometría.
+        # Simetriza con dinov2_refs_v4_canonical_neutral/ donde las refs
+        # también tienen A=B=128 en los pixels de la pieza.
+        arr = neutralize_lab(arr)
         return Image.fromarray(arr)
     except Exception:
         return crop_img
@@ -366,13 +397,11 @@ def estimate_color_predominant_sam(crop_img: Image.Image, mask: np.ndarray) -> n
 # ─────────────────────────────────────────────────────────────────
 # Constantes geométricas del setup cenital (idénticas para todas
 # las muestras; NO dependen de la pieza observada).
-# Cám cenital en mm (0, 0, 150) → centro óptico.
-# Focal sensor: 27 mm @ 36 mm sensor → focal_px = 27 * 640 / 36 = 480 px.
-CAM_CEN_Z_MM = 150.0
-CAM_CEN_FOCAL_PX = 480.0
 IMG_RES_PX = 640.0
 IMG_CENTER_PX = 320.0
-PX_PER_MM_NOMINAL = 3.2  # @ Z = 0 (plano de la cinta)
+CAM_CEN_Z_MM = float(cfg.inference.calibration.camera_dist_mm)
+CAM_CEN_FOCAL_PX = float((cfg.cameras.cenital.focal_length_mm / 36.0) * IMG_RES_PX)
+PX_PER_MM_NOMINAL = float(CAM_CEN_FOCAL_PX / CAM_CEN_Z_MM)
 
 
 def _bbox_centroid_xy_mm(bbox_norm: list) -> tuple:
@@ -556,12 +585,11 @@ def measure_lateral_height_mm_sam(mask: np.ndarray) -> float:
 #   - Magnificación 3D usando posición XY estimada del bbox cenital
 #     y Z inicial (lateral_height GT si disponible, o 9.6 mm).
 # Constantes geométricas de la cámara lateral.
-# Cám lateral en BU (15, 0, 2.5) → mm (150, 0, 25); mira a (0,0,0).
-# Cám cenital en mm (0, 0, 150) → centro óptico.
-# Focal sensor: 27 mm @ 36 mm sensor → focal_px = 27 * 640 / 36 = 480 px.
-CAM_LAT_X_MM_V3 = 150.0
-CAM_LAT_Z_MM_V3 = 25.0
-CAM_FOCAL_PX_V3 = 480.0
+# Constantes geométricas de la cámara lateral.
+# Cám lateral en BU (15, 0, 2.5) → mm; mira a (0,0,0).
+CAM_LAT_X_MM_V3 = float(cfg.cameras.lateral.position[0] * 10.0)
+CAM_LAT_Z_MM_V3 = float(cfg.cameras.lateral.position[2] * 10.0)
+CAM_FOCAL_PX_V3 = float((cfg.cameras.lateral.focal_length_mm / 36.0) * 640.0)
 
 
 def _bbox_cen_xy_mm_v3(bbox_norm: list) -> tuple:
@@ -571,7 +599,7 @@ def _bbox_cen_xy_mm_v3(bbox_norm: list) -> tuple:
     cy_norm = (bbox_norm[1] + bbox_norm[3]) / 2.0
     cx_px = cx_norm * 640.0
     cy_px = cy_norm * 640.0
-    return ((cx_px - 320.0) / 3.2, (320.0 - cy_px) / 3.2)
+    return ((cx_px - 320.0) / PX_PER_MM_NOMINAL, (320.0 - cy_px) / PX_PER_MM_NOMINAL)
 
 
 def estimate_lateral_height_mm_corrected_v3(
@@ -1274,12 +1302,14 @@ def main():
                 + (f" | n_kps={kpts_obs.get('n_valid')}" if kpts_used else "")
             )
 
-        # Phase 2: Surface gating (gaussian, comparador con candidatos)
-        # El comparador SÍ conoce el candidato → predice qué área aparente
-        # vería la cámara si esa hipótesis fuera cierta, y compara contra la
-        # observación única.
+        # Phase 2: Surface gating (criterio híbrido adaptativo de error)
         valid_by_surface = []
         surface_scores = {}
+        
+        hybrid_thresh = float(cfg.inference.size_scoring.hybrid_threshold_mm2)
+        abs_tol = float(cfg.inference.size_scoring.abs_tolerance_mm2)
+        rel_tol = float(cfg.inference.size_scoring.rel_tolerance_pct)
+        
         for ref in valid_by_color:
             dims = get_part_dimensions(ref)
             L, W, H = sorted(dims, reverse=True)
@@ -1297,34 +1327,48 @@ def main():
                 filling_factor = 0.92
 
             best_score = 0.0
+            is_candidate_valid = False
             best_residual = float("inf")
+            best_rel_err = float("inf")
+            chosen_metric = ""
+            
             for nom_area, nom_h in configs:
                 nom_footprint = nom_area * filling_factor
-                # Predicción de área aparente para esta configuración candidata.
                 target_apparent = predict_apparent_zenith_area_mm2(
                     nom_footprint, nom_h, [cx1, cy1, cx2, cy2]
                 )
-                # Score gaussiano blando (σ relativo, más laxo cuanto más
-                # alta la pose hipotética → reconoce que poses verticales
-                # tienen más incertidumbre intrínseca).
-                sigma_rel = 0.20 + 0.012 * nom_h  # 20%@H=0; ~58%@H=32mm
-                sigma = max(2.0, sigma_rel * target_apparent)
+                
                 residual = abs(obs_apparent_area_mm2 - target_apparent)
+                if target_apparent <= hybrid_thresh:
+                    metric_valid = (residual <= abs_tol)
+                    current_metric = "abs"
+                else:
+                    rel_err = (residual / target_apparent) * 100.0 if target_apparent > 0 else float("inf")
+                    metric_valid = (rel_err <= rel_tol)
+                    current_metric = "rel"
+                
+                sigma_rel = 0.20 + 0.012 * nom_h
+                sigma = max(2.0, sigma_rel * target_apparent)
                 score = math.exp(-(residual ** 2) / (2.0 * sigma * sigma))
+                
                 if score > best_score:
                     best_score = score
                     best_residual = residual
+                    if target_apparent > 0:
+                        best_rel_err = (residual / target_apparent) * 100.0
+                    else:
+                        best_rel_err = 0.0
+                    is_candidate_valid = metric_valid
+                    chosen_metric = current_metric
 
             surface_scores[ref] = best_score
-            # Aceptamos en el gating si el score gaussiano supera 0.05
-            # (~2.5σ); en lugar de descartar duro, queda como score blando.
-            if best_score >= 0.05:
+            if is_candidate_valid:
                 valid_by_surface.append(ref)
 
             if sample_idx < 3 and ref == ref_gt:
                 log.info(
                     f"    [DEBUG-SURF] Ref={ref}(GT) | obs_apparent={obs_apparent_area_mm2:.1f} | "
-                    f"best_score={best_score:.3f} | residual={best_residual:.1f}mm²"
+                    f"valid={is_candidate_valid} ({chosen_metric}) | residual={best_residual:.1f}mm² ({best_rel_err:.1f}%)"
                 )
 
         if not valid_by_surface:

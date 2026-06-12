@@ -457,12 +457,17 @@ def load_color_catalog():
     COLOR_CATALOG = {}
     project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     catalog_path = os.path.join(project_root, "database", "color_catalog.json")
+    if not os.path.exists(catalog_path):
+        # Fallback to parent of project_root (LegoVision root)
+        catalog_path = os.path.join(os.path.dirname(project_root), "database", "color_catalog.json")
     if os.path.exists(catalog_path):
         try:
             with open(catalog_path, "r", encoding="utf-8") as f:
                 COLOR_CATALOG = json.load(f)
         except Exception as e:
             print(f"[WARN] Error al cargar catálogo de colores: {e}")
+    else:
+        print(f"[WARN] color_catalog.json not found at {catalog_path}")
     return COLOR_CATALOG
 
 def create_abs_plastic_material(color_value):

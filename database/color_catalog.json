@@ -1,4 +1,12 @@
 {
+    "0": {
+        "name": "Various",
+        "ldraw_code": "508",
+        "hex": "#808080",
+        "alpha": 1.0,
+        "category": "Solid Colors",
+        "material_type": "solid"
+    },
     "11": {
         "name": "Black",
         "ldraw_code": "256",

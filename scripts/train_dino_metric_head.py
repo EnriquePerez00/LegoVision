@@ -51,18 +51,17 @@ class TripletEmbeddingDataset(Dataset):
             # Create triplet combinations
             # We shuffle or limit to prevent combinatorial explosion if n is very large
             for i in range(n):
-                # Pick up to 10 random positives for each anchor to keep dataset size balanced
+                # Pick up to 2 random positives for each anchor to keep dataset size balanced
                 pos_indices = list(range(n))
                 pos_indices.remove(i)
                 random.shuffle(pos_indices)
-                for j in pos_indices[:10]:
-                    # Pick 2 different negative classes
+                for j in pos_indices[:2]:
+                    # Pick 1 different negative class
                     neg_classes = [oc for oc in self.classes if oc != c]
                     if neg_classes:
-                        for _ in range(2): # 2 triplets per positive pair
-                            neg_c = random.choice(neg_classes)
-                            neg_emb = random.choice(class_to_embeddings[neg_c])
-                            self.triplets.append((embs[i], embs[j], neg_emb))
+                        neg_c = random.choice(neg_classes)
+                        neg_emb = random.choice(class_to_embeddings[neg_c])
+                        self.triplets.append((embs[i], embs[j], neg_emb))
                             
         print(f"[Dataset] Generated {len(self.triplets)} triplets total.")
 
@@ -108,11 +107,13 @@ def evaluate_metrics(model, device, class_to_embeddings):
     pos_sims = []
     neg_sims = []
     
+    # Subsample to make evaluation fast
     classes = list(class_to_embeddings.keys())
+    eval_classes = random.sample(classes, min(25, len(classes)))
     
     with torch.no_grad():
         # 1. Similitudes Positivas (misma clase)
-        for c in classes:
+        for c in eval_classes:
             embs = class_to_embeddings[c]
             if len(embs) < 2:
                 continue
@@ -125,8 +126,8 @@ def evaluate_metrics(model, device, class_to_embeddings):
             pos_sims.extend(sim_matrix[triu_idx[0], triu_idx[1]].cpu().tolist())
             
         # 2. Similitudes Negativas (diferente clase)
-        for idx_a, c_a in enumerate(classes):
-            for c_b in classes[idx_a + 1:]:
+        for idx_a, c_a in enumerate(eval_classes):
+            for c_b in eval_classes[idx_a + 1:]:
                 embs_a = torch.tensor(class_to_embeddings[c_a], dtype=torch.float32).to(device)
                 embs_b = torch.tensor(class_to_embeddings[c_b], dtype=torch.float32).to(device)
                 
@@ -145,9 +146,10 @@ def evaluate_baseline(class_to_embeddings):
     pos_sims = []
     neg_sims = []
     classes = list(class_to_embeddings.keys())
+    eval_classes = random.sample(classes, min(25, len(classes)))
     
     # 1. Positivas
-    for c in classes:
+    for c in eval_classes:
         embs = np.array(class_to_embeddings[c])
         if len(embs) < 2:
             continue
@@ -158,8 +160,8 @@ def evaluate_baseline(class_to_embeddings):
         pos_sims.extend(sim_matrix[triu_idx].tolist())
         
     # 2. Negativas
-    for idx_a, c_a in enumerate(classes):
-        for c_b in classes[idx_a + 1:]:
+    for idx_a, c_a in enumerate(eval_classes):
+        for c_b in eval_classes[idx_a + 1:]:
             embs_a = np.array(class_to_embeddings[c_a])
             embs_b = np.array(class_to_embeddings[c_b])
             
@@ -207,7 +209,7 @@ def main():
     optimizer = optim.Adam(model.parameters(), lr=0.001)
     
     # 5. Bucle de Entrenamiento
-    epochs = 60
+    epochs = 15
     print(f"[Training] Starting training for {epochs} epochs...")
     
     for epoch in range(1, epochs + 1):
@@ -233,7 +235,7 @@ def main():
             
             epoch_loss += loss.item()
             
-        if epoch % 10 == 0 or epoch == 1:
+        if epoch % 1 == 0:
             avg_pos, avg_neg = evaluate_metrics(model, device, class_to_embeddings)
             print(f"  Epoch {epoch:02d}/{epochs} | Loss: {epoch_loss/len(dataloader):.4f} | Sim Pos: {avg_pos:.4f} | Sim Neg: {avg_neg:.4f} | Margin: {avg_pos-avg_neg:.4f}")
             
