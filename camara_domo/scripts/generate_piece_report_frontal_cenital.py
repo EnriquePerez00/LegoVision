@@ -205,6 +205,7 @@ def generate_html_report(
     cx2, cy2 = int(bbox_cen[2] * w_c), int(bbox_cen[3] * h_c)
     # Asegurar márgenes mínimos
     img_crop_cen = img_cen.crop((cx1, cy1, cx2, cy2))
+    b64_crop_cen = to_b64(img_crop_cen)
     
     # crops-row in HTML to show SAM
     # Import SAM dynamically inside generator
@@ -247,7 +248,6 @@ def generate_html_report(
     # Base64
     b64_cen_overlay = to_b64(img_cen_overlay)
     b64_lat_overlay = to_b64(img_lat_overlay)
-    b64_crop_cen = to_b64(img_crop_cen)
     b64_crop_lat = to_b64(img_crop_lat)
     
     # 6. Generar filas de observaciones individuales
