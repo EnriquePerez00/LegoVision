@@ -99,7 +99,6 @@ def download_bricklink_image(ref, color_code, timeout=8):
 _semantic_cache = {}
 
 def load_semantic_cache(semantic_json_path):
-    global _semantic_cache
     if not _semantic_cache and semantic_json_path and os.path.exists(semantic_json_path):
         with open(semantic_json_path) as _f:
             data = json.load(_f)
