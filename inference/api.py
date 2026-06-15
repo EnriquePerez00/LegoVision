@@ -713,7 +713,7 @@ def api_generate_single_piece_renders(set_id: str = "75078-1"):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-PART_HEIGHTS_MM = {
+STATIC_PART_HEIGHTS_MM = {
     # Bricks (height 9.6mm)
     "3001": 9.6, "3002": 9.6, "3003": 9.6, "3004": 9.6, "3005": 9.6, "3010": 9.6, "3622": 9.6, "3700": 9.6, "3701": 9.6,
     "2877": 9.6, "32000": 9.6, "3062": 9.6, "4070": 9.6,
@@ -726,6 +726,22 @@ PART_HEIGHTS_MM = {
     # Slopes (height 9.6mm)
     "3039": 9.6, "3298": 9.6, "3037": 9.6, "3665": 9.6,
 }
+
+def load_part_heights_from_db():
+    heights = dict(STATIC_PART_HEIGHTS_MM)
+    try:
+        with supabase_client.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT part_ref, MAX(lateral_height) as max_h FROM stable_poses GROUP BY part_ref")
+                for row in cur.fetchall():
+                    if row.get("max_h") is not None:
+                        heights[row["part_ref"]] = float(row["max_h"])
+        print(f"[LegoVision API] Loaded {len(heights)} part heights dynamically from database.")
+    except Exception as e:
+        print(f"[LegoVision API Warning] Failed to load part heights from DB: {e}. Using static catalog.")
+    return heights
+
+PART_HEIGHTS_MM = load_part_heights_from_db()
 
 @app.post("/inference_multicam_set")
 def api_inference_multicam_set(set_id: str = "75078-1"):

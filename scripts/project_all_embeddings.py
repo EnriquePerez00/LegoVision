@@ -45,40 +45,49 @@ def main():
 
     print(f"[Projector] Loaded {len(rows)} embeddings. Projecting...")
 
-    # 3. Project and update database
-    updated_count = 0
+    # 3. Project all embeddings in batch
+    print("[Projector] Projecting embeddings in batch...")
+    all_embs = [r['embedding'] for r in rows]
+    t_embeddings = torch.tensor(all_embs, dtype=torch.float32).to(device)
+    
+    with torch.no_grad():
+        projected_list = []
+        chunk_size = 5000
+        for i in range(0, len(t_embeddings), chunk_size):
+            chunk = t_embeddings[i:i+chunk_size]
+            proj_chunk = model(chunk)
+            projected_list.append(proj_chunk.cpu().numpy())
+        projected = np.vstack(projected_list)
+
+    print("[Projector] Projection completed. Preparing update data...")
+    update_data = []
+    for idx, r in enumerate(rows):
+        part_ref = r['part_ref']
+        face = r['stable_face']
+        rot = r['rotation_angle']
+        color_hex = r['color_hex']
+        pose_idx = r.get('pose_index', 0) or 0
+        proj_emb = projected[idx].tolist()
+        update_data.append((proj_emb, part_ref, face, rot, color_hex, pose_idx))
+
+    # 4. Batch update using execute_batch
+    from psycopg2.extras import execute_batch
+    print(f"[Projector] Updating database in batches...")
     with supabase_client.get_connection() as conn:
         with conn.cursor() as cur:
-            for idx, r in enumerate(rows):
-                part_ref = r['part_ref']
-                face = r['stable_face']
-                rot = r['rotation_angle']
-                color_hex = r['color_hex']
-                pose_idx = r.get('pose_index', 0) or 0
-                emb = r['embedding']
-
-                # Project
-                with torch.no_grad():
-                    t_emb = torch.tensor(emb, dtype=torch.float32).unsqueeze(0).to(device)
-                    t_proj = model(t_emb)
-                    proj_emb = t_proj[0].cpu().numpy().tolist()
-
-                # Update row (PK completa: part_ref, stable_face, rotation_angle, color_hex, pose_index)
-                cur.execute("""
+            batch_size = 1000
+            for i in range(0, len(update_data), batch_size):
+                batch = update_data[i:i+batch_size]
+                execute_batch(cur, """
                     UPDATE piece_embeddings
                     SET embedding_projected = %s
                     WHERE part_ref = %s AND stable_face = %s AND rotation_angle = %s
-                      AND color_hex = %s AND pose_index = %s
-                """, (proj_emb, part_ref, face, rot, color_hex, pose_idx))
-                
-                updated_count += 1
-                if updated_count % 100 == 0 or updated_count == len(rows):
-                    print(f"[Projector] Progress: {updated_count}/{len(rows)} rows updated.")
-                    conn.commit()
+                      AND color_hex IS NOT DISTINCT FROM %s AND pose_index IS NOT DISTINCT FROM %s
+                """, batch)
+                conn.commit()
+                print(f"[Projector] Progress: {min(i+batch_size, len(update_data))}/{len(update_data)} updated.")
 
-            conn.commit()
-
-    print(f"[Projector DONE] Successfully projected and updated {updated_count} reference embeddings in DB.")
+    print(f"[Projector DONE] Successfully projected and updated {len(update_data)} reference embeddings in DB.")
 
 if __name__ == "__main__":
     main()

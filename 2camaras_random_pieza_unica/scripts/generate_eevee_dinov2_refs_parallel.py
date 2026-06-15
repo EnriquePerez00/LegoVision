@@ -54,16 +54,19 @@ from generate_eevee_dinov2_refs import (
     setup_cameras,
     cleanup_piece,
     _normalize_piece,
+    calculate_adaptive_rotations,
 )
 
 from logger import get_logger, log_execution_header, log_execution_footer
 log = get_logger("blender_parallel")
 
 SELECTED_PARTS = cfg.pieces.selected_parts
-RENDER_RES = cfg.render.resolution.width
+RENDER_RES_DEFAULT = cfg.render.resolution.width
 
-# Optimizaciones EEVEE (B3 sí, B1 NO - calidad mantenida)
-TAA_SAMPLES = 16
+# Optimizaciones EEVEE (sprint 1 — render refs DINOv2 reducido):
+#   - 1.1 (TAA 16→8): ganancia ~25-30% sin pérdida visible para refs DINOv2.
+#   - B3: bloom/SSR/AO desactivados (innecesarios para refs canónicas).
+TAA_SAMPLES = 8
 DISABLE_BLOOM = True
 DISABLE_SSR = True
 DISABLE_AO = True
@@ -93,18 +96,23 @@ def main():
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument("--output_dir", type=str, required=True)
-    parser.add_argument("--rotations", type=int, default=12)
+    parser.add_argument("--rotations", type=int, default=12, help="Rotaciones por defecto si no se usa heurística.")
     parser.add_argument("--start_idx", type=int, default=0)
     parser.add_argument("--end_idx", type=int, default=-1)
     parser.add_argument("--worker_id", type=int, default=0)
     parser.add_argument("--skip_existing", action="store_true")
+    parser.add_argument("--render_res", type=int, default=384,
+                        help="Resolución cuadrada (px) del render. "
+                             "Para refs DINOv2 se recomienda 384 (1.4).")
     pa = parser.parse_known_args(args_raw)[0]
     out_dir = pa.output_dir
+    render_res = int(pa.render_res)
 
     log_execution_header(log, "generate_eevee_dinov2_refs_parallel.py",
                          worker_id=pa.worker_id,
                          start_idx=pa.start_idx, end_idx=pa.end_idx,
                          output_dir=out_dir, rotations=pa.rotations,
+                         render_res=render_res,
                          skip_existing=pa.skip_existing)
 
     for c in ["cenital", "lateral"]:
@@ -120,8 +128,8 @@ def main():
     scene = bpy.context.scene
     scene.render.engine = "BLENDER_EEVEE"
     scene.render.film_transparent = True
-    scene.render.resolution_x = RENDER_RES
-    scene.render.resolution_y = RENDER_RES
+    scene.render.resolution_x = render_res
+    scene.render.resolution_y = render_res
     apply_eevee_optimizations(scene)
 
     total_rendered = 0
@@ -147,9 +155,28 @@ def main():
         log.info(f"[w{pa.worker_id}] === Pieza: {part_ref} ===")
 
         allowed_colors = []
-        for p in REAL_SETS["75078-1"]["parts"]:
-            if p["ref"] == part_ref:
-                allowed_colors.append(p["color_hex"].replace("#", "").upper())
+        try:
+            from database import supabase_client
+            with supabase_client.get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT DISTINCT color_hex FROM lego_set_parts WHERE part_ref = %s AND color_hex IS NOT NULL", (part_ref,))
+                    for row in cur.fetchall():
+                        color_h = row.get("color_hex") if isinstance(row, dict) else row[0]
+                        if color_h:
+                            allowed_colors.append(color_h.replace("#", "").upper())
+        except Exception as e:
+            log.warning(f"[w{pa.worker_id}] Failed to fetch colors from DB for {part_ref}: {e}")
+
+        if not allowed_colors:
+            # Fallback to searching REAL_SETS (all sets in the catalog)
+            for s_id, s_data in REAL_SETS.items():
+                for p in s_data.get("parts", []):
+                    if p["ref"] == part_ref and p.get("color_hex"):
+                        allowed_colors.append(p["color_hex"].replace("#", "").upper())
+
+        # Deduplicate and sort
+        allowed_colors = sorted(list(set(allowed_colors)))
+
         if not allowed_colors:
             allowed_colors = [str(c).replace("#", "").upper() for c in PART_COLORS_HEX]
 
@@ -189,12 +216,11 @@ def main():
             _normalize_piece(part_obj)
             apply_bevel_modifier(part_obj)
 
-            n_rots = pa.rotations
-            rot_step = (2 * math.pi) / n_rots
+            n_rots, rot_step = calculate_adaptive_rotations(part_obj, pose)
 
             for rot_i in range(n_rots):
-                rot_deg = int(round(rot_i * (360.0 / n_rots)))
                 rot_rad = rot_i * rot_step
+                rot_deg = int(round(math.degrees(rot_rad)))
 
                 quat = pose.get("orientation_quat")
                 if quat and len(quat) == 4:
@@ -232,6 +258,21 @@ def main():
                     bpy.context.view_layer.update()
 
                     if not skip_cen:
+                        # ── Render Cenital ──
+                        # Ocultamos del frame los planos opacos que la cámara cenital
+                        # ve por debajo de la pieza (Lab_Floor, Conveyor_Belt_Plane,
+                        # Side_Rail_L/R) para que `film_transparent=True` produzca
+                        # alpha=0 en el fondo, igual que ya ocurre con el lateral.
+                        # Crítico para colores translúcidos (Trans-Brown, Trans-Red…).
+                        _hide_targets = ["Lab_Floor", "Conveyor_Belt_Plane",
+                                         "Side_Rail_L", "Side_Rail_R"]
+                        _prev_hide = {}
+                        for _n in _hide_targets:
+                            _o = bpy.data.objects.get(_n)
+                            if _o is not None:
+                                _prev_hide[_n] = _o.hide_render
+                                _o.hide_render = True
+
                         scene.camera = cam_c
                         scene.render.filepath = cenital_path
                         try:
@@ -239,10 +280,17 @@ def main():
                             total_rendered += 1
                         except Exception as e:
                             log.warning(f"[w{pa.worker_id}] Cen fallido {fname}: {e}")
+                        finally:
+                            # Restaurar visibilidad antes del render lateral.
+                            for _n, _prev in _prev_hide.items():
+                                _o = bpy.data.objects.get(_n)
+                                if _o is not None:
+                                    _o.hide_render = _prev
                     else:
                         total_skipped += 1
 
                     if not skip_lat:
+                        # ── Render Lateral ──
                         scene.camera = cam_l
                         scene.render.filepath = lateral_path
                         try:

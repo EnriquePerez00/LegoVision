@@ -15,8 +15,11 @@ if user_site not in sys.path:
     sys.path.append(user_site)
 
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+legovic_root = os.path.dirname(project_root)
 sys.path.append(project_root)
 sys.path.append(os.path.join(project_root, 'scripts'))
+if legovic_root not in sys.path:
+    sys.path.append(legovic_root)
 
 try:
     import bpy
@@ -37,19 +40,50 @@ from generate_synthetic_set import (
     enable_metal_gpu_acceleration,
 )
 from generate_synthetic_dataset import get_single_mesh_object
+# Reusar el setup canónico Machine Vision desde generate_test_set para que
+# todos los scripts (test, 300_random, yolo_training, dinov2_refs)
+# compartan exactamente la misma iluminación. Si el setup cambia, basta con
+# tocarlo una vez en generate_test_set.py.
+from generate_test_set import setup_lab_lightbox
 
 from logger import get_logger, log_execution_header, log_execution_footer
 log = get_logger("blender")
 
 # ── Config ──
 SELECTED_PARTS = cfg.pieces.selected_parts
-BELT_WIDTH_BU = cfg.scene.belt.width_bu
-BELT_LENGTH_BU = cfg.scene.belt.length_bu
-BELT_THICKNESS_BU = cfg.scene.belt.thickness_bu
+# OVERRIDE de escala nueva (1 BU = 10 cm). El config sigue cargando los
+# valores legacy (BELT_WIDTH_BU=20 = 200 cm) pero aqui los reescalamos
+# a 2.0 BU = 20 cm de ancho, coherente con generate_inferencia_test_v2.
+# La pieza viene normalizada con LDU_TO_BU=0.004 (3023 plate 1x2 = 0.128 BU
+# = 1.28 cm), asi que ocupa ~6 % del FOV cenital de 20 cm. Sin este
+# override, el ancho seria 200 cm y la pieza solo ocuparia 0.6 % del FOV.
+BELT_WIDTH_BU = 2.0      # 20 cm (override de cfg.scene.belt.width_bu = 20.0)
+BELT_LENGTH_BU = 12.0    # 120 cm
+BELT_THICKNESS_BU = 0.1  # 1 cm
 BELT_COLOR_LINEAR = tuple(cfg.scene.belt.color_linear)
-RENDER_RES = cfg.render.resolution.width
+RENDER_RES_DEFAULT = cfg.render.resolution.width
 MIN_CONTACT_DIM_MM = cfg.stable_poses.min_contact_dimension_mm
 MIN_STABILITY = cfg.stable_poses.render_min_stability
+
+# Optimizaciones EEVEE (sprint 1):
+#   - 1.1 (TAA 16→8): ganancia ~25-30% sin pérdida visible para refs.
+#   - B3: bloom/SSR/AO desactivados.
+TAA_SAMPLES_OPT = 8
+
+
+def apply_eevee_optimizations(scene):
+    """Configura EEVEE: menos samples y sin efectos costosos (B1+B3)."""
+    try:
+        scene.eevee.taa_render_samples = TAA_SAMPLES_OPT
+        if hasattr(scene.eevee, "use_bloom"):
+            scene.eevee.use_bloom = False
+        if hasattr(scene.eevee, "use_ssr"):
+            scene.eevee.use_ssr = False
+        if hasattr(scene.eevee, "use_gtao"):
+            scene.eevee.use_gtao = False
+        log.info(f"[opt] EEVEE: TAA={TAA_SAMPLES_OPT}, bloom/SSR/AO=False")
+    except Exception as e:
+        log.warning(f"[opt] EEVEE optim parcial: {e}")
 
 
 def get_stable_poses(part_ref):
@@ -91,68 +125,73 @@ def get_stable_poses(part_ref):
         return []
 
 
-def setup_lab_lightbox():
-    """Setup laboratory lightbox lighting (canonical, no randomization)."""
-    keep = {"Conveyor_Belt_Plane", "Camera_Target", "Side_Rail_L", "Side_Rail_R",
-            "Cam_Cenital", "Cam_Lateral", "Lab_Floor"}
-    for o in list(bpy.context.scene.objects):
-        if o.type == 'LIGHT' and o.name not in keep:
-            bpy.data.objects.remove(o, do_unlink=True)
+def calculate_adaptive_rotations(part_obj, pose):
+    """Calcula N_opt y rot_step basado en la simetría rotacional Sz y el Aspect Ratio."""
+    cw = pose.get("contact_stable_width", pose.get("contact_width_mm"))
+    cl = pose.get("contact_stable_length", pose.get("contact_length_mm"))
+    
+    if cw is None or cl is None or min(cw, cl) < 1e-3:
+        ar = 1.0
+    else:
+        ar = max(cw, cl) / min(cw, cl)
+        
+    # Calcular theta_step
+    theta_step = max(10.0, 30.0 - 5.0 * (ar - 1.0))
+    
+    # Calcular Sz usando mathutils.kdtree
+    bpy.context.view_layer.update()
+    v0 = [part_obj.matrix_world @ v.co for v in part_obj.data.vertices]
+    
+    size = max(1, len(v0))
+    kd = mathutils.kdtree.KDTree(size)
+    for i, v in enumerate(v0):
+        kd.insert(v, i)
+    kd.balance()
+    
+    def is_symmetric(angle):
+        orig_rot = part_obj.rotation_euler.copy()
+        part_obj.rotation_mode = 'XYZ'
+        part_obj.rotation_euler.z += angle
+        bpy.context.view_layer.update()
+        
+        v_rot = [part_obj.matrix_world @ v.co for v in part_obj.data.vertices]
+        
+        part_obj.rotation_euler = orig_rot
+        bpy.context.view_layer.update()
+        
+        # Tolerancia dinámica: 5% de la dimensión máxima o 0.05 BU (5mm)
+        tol = max(0.05, 0.05 * max(part_obj.dimensions))
+        matches = 0
+        for v in v_rot:
+            co, index, dist = kd.find(v)
+            if dist < tol:
+                matches += 1
+        return (matches / size) > 0.95
+        
+    if is_symmetric(math.pi / 4.0): # 45 degrees -> circular
+        Sz = float('inf')
+    elif is_symmetric(math.pi / 2.0): # 90 degrees
+        Sz = 4
+    elif is_symmetric(math.pi): # 180 degrees
+        Sz = 2
+    else:
+        Sz = 1
+        
+    if Sz == float('inf'):
+        return 1, 0.0
+        
+    unique_range_deg = 360.0 / Sz
+    n_opt = math.ceil(unique_range_deg / theta_step)
+    n_opt = max(1, int(n_opt))
+    rot_step_rad = math.radians(unique_range_deg / n_opt)
+    
+    return n_opt, rot_step_rad
 
-    scene = bpy.context.scene
-    if scene.world:
-        scene.world.use_nodes = True
-        bg = scene.world.node_tree.nodes.get("Background")
-        if bg:
-            bg.inputs["Color"].default_value = (1.0, 1.0, 1.0, 1.0)
-            bg.inputs["Strength"].default_value = 0.3
 
-    neutral_color = (1.0, 1.0, 1.0)
-
-    bpy.ops.object.light_add(type='AREA', location=(0.0, 0.0, 12.0))
-    main = bpy.context.active_object
-    main.name = "Lab_Main_Dome"
-    main.data.size = 35.0
-    main.data.size_y = 35.0
-    main.data.shape = 'RECTANGLE'
-    main.data.color = neutral_color
-    main.data.energy = 2000.0
-
-    target = bpy.data.objects.get("Camera_Target")
-    if not target:
-        bpy.ops.object.empty_add(type='PLAIN_AXES', location=(0.0, 0.0, 0.0))
-        target = bpy.context.active_object
-        target.name = "Camera_Target"
-
-    wall_panels = [
-        ("Lab_Wall_N", (0.0, +12.0, 6.0)),
-        ("Lab_Wall_S", (0.0, -12.0, 6.0)),
-        ("Lab_Wall_E", (+12.0, 0.0, 6.0)),
-        ("Lab_Wall_W", (-12.0, 0.0, 6.0)),
-    ]
-    for wname, wloc in wall_panels:
-        bpy.ops.object.light_add(type='AREA', location=wloc)
-        wp = bpy.context.active_object
-        wp.name = wname
-        wp.data.size = 20.0
-        wp.data.size_y = 12.0
-        wp.data.shape = 'RECTANGLE'
-        wp.data.color = neutral_color
-        wp.data.energy = 600.0
-        track = wp.constraints.new(type='TRACK_TO')
-        track.target = target
-        track.track_axis = 'TRACK_NEGATIVE_Z'
-        track.up_axis = 'UP_Y'
-
-    bpy.ops.object.light_add(type='AREA', location=(0.0, 0.0, -0.5))
-    gf = bpy.context.active_object
-    gf.name = "Lab_Ground_Fill"
-    gf.data.size = 30.0
-    gf.data.size_y = 30.0
-    gf.data.shape = 'RECTANGLE'
-    gf.data.color = neutral_color
-    gf.data.energy = 200.0
-    gf.rotation_euler = (3.14159, 0.0, 0.0)
+# La definición local de setup_lab_lightbox() se eliminó. Ahora se reusa
+# el setup canónico Machine Vision desde generate_test_set (importado
+# arriba). Si necesitas modificar la iluminación, hazlo en
+# generate_test_set.setup_machine_vision_lighting().
 
 
 def create_floor():
@@ -280,6 +319,8 @@ def setup_cameras():
 
 
 def _normalize_piece(obj):
+    """Misma logica que generate_test_set._normalize_piece (LDU_TO_BU=0.004
+    en la nueva escala 1 BU = 10 cm)."""
     if not obj.data or not hasattr(obj.data, 'vertices'):
         return 1.0
     verts = [v.co for v in obj.data.vertices]
@@ -289,7 +330,8 @@ def _normalize_piece(obj):
     mx = max(max(xs)-min(xs), max(ys)-min(ys), max(zs)-min(zs))
     if mx < 1e-6:
         return 1.0
-    factor = 0.04 if mx > 5.0 else 1.0
+    LDU_TO_BU = 0.004
+    factor = LDU_TO_BU if mx > 5.0 else 1.0
     cx = (max(xs)+min(xs))/2.0; cy = (max(ys)+min(ys))/2.0; cz = (max(zs)+min(zs))/2.0
     for v in obj.data.vertices:
         v.co.x = (v.co.x - cx) * factor
@@ -302,8 +344,14 @@ def _normalize_piece(obj):
 
 
 def cleanup_piece():
+    # Setup canónico Machine Vision (MV_Ring_Cenital + MV_Bar_Lateral_L/R).
+    # Se mantienen los nombres legacy (Lab_*) por compatibilidad si algún
+    # script externo aún los crea; son inocuos.
     keep = {"Conveyor_Belt_Plane", "Camera_Target", "Side_Rail_L", "Side_Rail_R",
             "Cam_Cenital", "Cam_Lateral", "Lab_Floor",
+            # Setup MV (actual)
+            "MV_Ring_Cenital", "MV_Bar_Lateral_L", "MV_Bar_Lateral_R",
+            # Setup legacy lab_lightbox (compatibilidad)
             "Lab_Main_Dome", "Lab_Wall_N", "Lab_Wall_S", "Lab_Wall_E", "Lab_Wall_W", "Lab_Ground_Fill"}
     bpy.ops.object.select_all(action='DESELECT')
     for o in list(bpy.context.scene.objects):
@@ -325,12 +373,17 @@ def main():
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument("--output_dir", type=str, required=True)
-    parser.add_argument("--rotations", type=int, default=12)
+    parser.add_argument("--rotations", type=int, default=12, help="Rotaciones por defecto si no se usa heurística.")
+    parser.add_argument("--render_res", type=int, default=384,
+                        help="Resolución cuadrada (px). Para refs DINOv2 se "
+                             "recomienda 384 (opt 1.4) si la red trabaja a 224.")
     pa = parser.parse_known_args(args_raw)[0]
     out_dir = pa.output_dir
+    render_res = int(pa.render_res)
 
     log_execution_header(log, "generate_eevee_dinov2_refs.py",
                          output_dir=out_dir, rotations=pa.rotations,
+                         render_res=render_res,
                          selected_parts=SELECTED_PARTS)
 
     for c in ["cenital", "lateral"]:
@@ -346,8 +399,9 @@ def main():
     scene = bpy.context.scene
     scene.render.engine = "BLENDER_EEVEE"
     scene.render.film_transparent = True
-    scene.render.resolution_x = RENDER_RES
-    scene.render.resolution_y = RENDER_RES
+    scene.render.resolution_x = render_res
+    scene.render.resolution_y = render_res
+    apply_eevee_optimizations(scene)
 
     total_rendered = 0
 
@@ -355,16 +409,18 @@ def main():
     from database.set_catalog import REAL_SETS
     PART_COLORS_HEX = cfg.pieces.reference_colors_hex
 
-    # Iterar TODAS las piezas que tengan poses estables en el cache,
-    # no solo la lista limitada cfg.pieces.selected_parts. Esto garantiza
-    # que los embeddings DINOv2 cubren todo el inventario del set 75078-1.
+    # Iterar SOLO las piezas del set 75078-1 (38 refs) que tengan poses
+    # estables en el cache. El cache trae 68 piezas (incluye otros sets);
+    # filtramos para acotar tiempo de render a ~22 min vs ~102 min.
     cache_path = os.path.join(project_root, "data", "stable_poses_cache.json")
+    set_refs = sorted({p["ref"] for p in REAL_SETS["75078-1"]["parts"]})
     try:
         with open(cache_path, "r", encoding="utf-8") as f:
-            ALL_PARTS = sorted(json.load(f).keys())
+            cache_keys = set(json.load(f).keys())
+        ALL_PARTS = sorted([r for r in set_refs if r in cache_keys])
     except Exception:
         ALL_PARTS = list(SELECTED_PARTS)
-    log.info(f"Procesando {len(ALL_PARTS)} piezas (todas las del cache stable_poses).")
+    log.info(f"Procesando {len(ALL_PARTS)} piezas del set 75078-1 con poses en cache.")
 
     for part_ref in ALL_PARTS:
         log.info(f"=== Generando referencias para pieza: {part_ref} ===")
@@ -415,12 +471,11 @@ def main():
             apply_bevel_modifier(part_obj)
 
             # Rotations
-            n_rots = pa.rotations
-            rot_step = (2 * math.pi) / n_rots
+            n_rots, rot_step = calculate_adaptive_rotations(part_obj, pose)
 
             for rot_i in range(n_rots):
-                rot_deg = int(round(rot_i * (360.0 / n_rots)))
                 rot_rad = rot_i * rot_step
+                rot_deg = int(round(math.degrees(rot_rad)))
 
                 # Apply pose orientation
                 quat = pose.get("orientation_quat")
@@ -451,7 +506,23 @@ def main():
 
                     fname = f"ref_{part_ref}_{color_hex}_pose{pose_idx:02d}_rot{rot_deg:03d}.png"
 
-                    # Render Cenital
+                    # ── Render Cenital ──
+                    # Ocultamos del frame los planos opacos que la cámara cenital
+                    # ve por debajo de la pieza (Lab_Floor, Conveyor_Belt_Plane,
+                    # Side_Rail_L/R). De este modo `film_transparent=True` produce
+                    # alpha=0 en el fondo, igual que ya ocurre con la cámara lateral
+                    # (que mira hacia el horizonte y no ve esos planos).
+                    # Esto es CRÍTICO para los colores translúcidos (Trans-Brown,
+                    # Trans-Red…) cuyo matiz queda lavado contra fondo opaco.
+                    _hide_targets = ["Lab_Floor", "Conveyor_Belt_Plane",
+                                     "Side_Rail_L", "Side_Rail_R"]
+                    _prev_hide = {}
+                    for _n in _hide_targets:
+                        _o = bpy.data.objects.get(_n)
+                        if _o is not None:
+                            _prev_hide[_n] = _o.hide_render
+                            _o.hide_render = True
+
                     scene.camera = cam_c
                     scene.render.filepath = os.path.join(out_dir, "cenital", fname)
                     try:
@@ -459,8 +530,27 @@ def main():
                         total_rendered += 1
                     except Exception as e:
                         log.warning(f"Render cenital fallido: {e}")
+                    finally:
+                        # Restauramos visibilidad para el render lateral, que SÍ
+                        # debe ver la cinta como suelo/horizon de referencia.
+                        for _n, _prev in _prev_hide.items():
+                            _o = bpy.data.objects.get(_n)
+                            if _o is not None:
+                                _o.hide_render = _prev
 
-                    # Render Lateral
+                    # ── Render Lateral ──
+                    # Tambien ocultamos la geometria del entorno para que el
+                    # render lateral salga con fondo transparente (= negro al
+                    # convertir RGB), simetrico al cenital. Esto se alinea con
+                    # el masking SAM que aplica el pipeline de inferencia
+                    # (apply_sam_mask_to_crop) sobre el query lateral.
+                    _prev_hide_lat = {}
+                    for _n in _hide_targets:
+                        _o = bpy.data.objects.get(_n)
+                        if _o is not None:
+                            _prev_hide_lat[_n] = _o.hide_render
+                            _o.hide_render = True
+
                     scene.camera = cam_l
                     scene.render.filepath = os.path.join(out_dir, "lateral", fname)
                     try:
@@ -468,6 +558,12 @@ def main():
                         total_rendered += 1
                     except Exception as e:
                         log.warning(f"Render lateral fallido: {e}")
+                    finally:
+                        # Restaurar visibilidad para no afectar siguiente sample.
+                        for _n, _prev in _prev_hide_lat.items():
+                            _o = bpy.data.objects.get(_n)
+                            if _o is not None:
+                                _o.hide_render = _prev
 
             cleanup_piece()
 

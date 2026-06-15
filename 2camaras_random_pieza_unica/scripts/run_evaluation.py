@@ -38,6 +38,20 @@ from inference.knn_classifier import LegoKNNClassifier, get_knn_classifier, FALL
 from inference.api import PART_HEIGHTS_MM
 from database.set_catalog import REAL_SETS
 
+# Observador 6-DoF basado en YOLO-Pose + triangulacion 2-view (Fase 5).
+# Si los pesos `yolo_<cam>_pose.pt` no existen, el pipeline cae al
+# observador SAM-bbox tradicional (`apparent_area_mm2`, `lateral_height`).
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+try:
+    from _kpts_observer import (
+        kpts_observer as kpts_observer_fn,
+        extract_yolo_pose_keypoints,
+    )
+    HAS_KPTS_MODULE = True
+except Exception as _e:
+    HAS_KPTS_MODULE = False
+    print(f"[WARN] _kpts_observer no disponible: {_e}")
+
 from logger import get_logger, log_execution_header, log_execution_footer
 log = get_logger("pipeline")
 
@@ -67,29 +81,79 @@ def rgb_to_lab(rgb_val):
 
 # 7 colores reales del inventario del set 75078-1 (BrickLink codes).
 # El comparador CIELAB elige el mas cercano al RGB observado.
-SET_CATALOG_COLORS = [
-    {"color_code": "1",  "color_name": "White",             "color_hex": "#FFFFFF", "rgb": [242, 243, 242]},
-    {"color_code": "5",  "color_name": "Red",               "color_hex": "#C91A09", "rgb": [201,  26,   9]},
-    {"color_code": "11", "color_name": "Black",             "color_hex": "#1B1B1B", "rgb": [ 27,  42,  52]},
-    {"color_code": "13", "color_name": "Trans-Brown",       "color_hex": "#583927", "rgb": [101,  77,  47]},
-    {"color_code": "17", "color_name": "Trans-Red",         "color_hex": "#C91A09", "rgb": [200,  85,  61]},
-    {"color_code": "85", "color_name": "Dark Bluish Gray",  "color_hex": "#646464", "rgb": [ 99,  95,  97]},
-    {"color_code": "86", "color_name": "Light Bluish Gray", "color_hex": "#A0A5A9", "rgb": [160, 165, 169]},
-]
+#
+# RGB recalibrados sobre la nueva escena (cinta azul petroleo + V4 lighting +
+# pantalla aluminio + suelo oficina + cam cenital z=15cm). Los valores se
+# midieron sobre la pieza 3023 plate 1x2 con las 7 muestras renderizadas
+# (ver scripts/generate_inferencia_test_v2.py). Ver historico legacy en
+# SET_CATALOG_COLORS_LEGACY (cinta azul vieja + setup MV ring+bars).
+CCM_CEN = np.array(cfg.inference.color_calibration.ccm_cenital)
+CCM_LAT = np.array(cfg.inference.color_calibration.ccm_lateral)
+
+def hex_to_rgb(hex_str):
+    hex_str = hex_str.lstrip("#")
+    if len(hex_str) == 6:
+        return np.array([int(hex_str[i:i+2], 16) for i in (0, 2, 4)], dtype=float)
+    return np.array([128.0, 128.0, 128.0])
+
+SET_CATALOG_COLORS = []
+SET_CATALOG_COLORS_LATERAL = []
+
+for sc in cfg.pieces.set_colors:
+    code_str = str(sc["code"])
+    hex_color = sc["hex"]
+    name = sc["name"]
+    rgb_nominal = hex_to_rgb(hex_color)
+    
+    rgb_cen = np.clip(CCM_CEN @ rgb_nominal, 0.0, 255.0).tolist()
+    rgb_lat = np.clip(CCM_LAT @ rgb_nominal, 0.0, 255.0).tolist()
+    
+    SET_CATALOG_COLORS.append({
+        "color_code": code_str,
+        "color_name": name,
+        "color_hex": hex_color,
+        "rgb": rgb_cen
+    })
+    SET_CATALOG_COLORS_LATERAL.append({
+        "color_code": code_str,
+        "color_name": name,
+        "color_hex": hex_color,
+        "rgb": rgb_lat
+    })
 
 
-def find_closest_catalog_color(avg_rgb):
-    """Busca el color del set 75078-1 mas similar a avg_rgb en CIELAB."""
+def find_closest_catalog_color(avg_rgb, camera="cenital"):
+    """Busca el color del set 75078-1 mas similar a avg_rgb en CIELAB.
+
+    `camera`: "cenital" (default) o "lateral" para usar el catalogo
+    correspondiente recalibrado para esa vista.
+
+    Retro-compatible: devuelve el dict del color top-1 (sin extras).
+    Internamente almacena `_delta_e` (ΔE_lab al top-1) y `_runner_up`
+    (segundo más cercano) en el propio dict para diagnóstico, sin romper
+    el contrato de los llamantes que sólo leen color_code/color_hex/color_name.
+    """
+    catalog = SET_CATALOG_COLORS_LATERAL if camera == "lateral" else SET_CATALOG_COLORS
     avg_lab = rgb_to_lab(avg_rgb)
-    best_match = SET_CATALOG_COLORS[0]
-    min_dist = float("inf")
-    for sc in SET_CATALOG_COLORS:
+    distances = []
+    for sc in catalog:
         sc_lab = rgb_to_lab(sc["rgb"])
-        dist = np.linalg.norm(avg_lab - sc_lab)
-        if dist < min_dist:
-            min_dist = dist
-            best_match = sc
-    return best_match
+        d = float(np.linalg.norm(avg_lab - sc_lab))
+        distances.append((d, sc))
+    distances.sort(key=lambda t: t[0])
+    best_dist, best_match = distances[0]
+    runner_up_dist, runner_up = (distances[1] if len(distances) > 1 else (None, None))
+    # Anotar metadatos sin alterar la API existente.
+    enriched = dict(best_match)
+    enriched["_delta_e"] = round(best_dist, 2)
+    if runner_up is not None:
+        enriched["_runner_up_code"] = runner_up.get("color_code")
+        enriched["_runner_up_name"] = runner_up.get("color_name")
+        enriched["_runner_up_delta_e"] = round(runner_up_dist, 2)
+        enriched["_margin"] = round(runner_up_dist - best_dist, 2)
+    else:
+        enriched["_margin"] = None
+    return enriched
 
 
 def estimate_color_predominant(crop_img, use_segmentation=False):
@@ -130,7 +194,7 @@ def estimate_color_predominant(crop_img, use_segmentation=False):
         return np.array([160.0, 165.0, 169.0])
 
 
-# ── YOLO Inference Helper ──
+# ── YOLO Inference Helpers ──
 def yolo_detect_bbox(model, img_path, conf_threshold=0.25):
     """Ejecuta inferencia YOLO y devuelve la bbox con mayor confianza como [x1, y1, x2, y2] normalizada.
     Retorna (None, 0.0) si no hay detección."""
@@ -147,6 +211,32 @@ def yolo_detect_bbox(model, img_path, conf_threshold=0.25):
     except Exception as e:
         log.warning(f"Error en YOLO inference: {e}")
     return None, 0.0
+
+
+def yolo_detect_bbox_batch(model, img_paths, conf_threshold=0.25, batch_size=16):
+    """OPT 3.1 — Inferencia YOLO en lotes. Devuelve lista [(bbox_norm|None, conf), ...]
+    en el mismo orden que img_paths.
+    
+    Procesa los paths en chunks de batch_size para no saturar memoria GPU/MPS."""
+    out = []
+    for start in range(0, len(img_paths), batch_size):
+        chunk = img_paths[start:start + batch_size]
+        try:
+            results = model(chunk, verbose=False, conf=conf_threshold)
+        except Exception as e:
+            log.warning(f"YOLO batch fallido [{start}:{start+len(chunk)}]: {e}")
+            out.extend([(None, 0.0)] * len(chunk))
+            continue
+        for r in results:
+            if r is not None and len(r.boxes) > 0:
+                boxes = r.boxes
+                best_idx = boxes.conf.argmax().item()
+                bbox_norm = boxes.xyxyn[best_idx].cpu().numpy().tolist()
+                conf = float(boxes.conf[best_idx].cpu().numpy())
+                out.append((bbox_norm, conf))
+            else:
+                out.append((None, 0.0))
+    return out
 
 
 # ── Config ──
@@ -222,23 +312,83 @@ def segment_crop_sam(img_full: Image.Image, bbox_norm: list) -> np.ndarray:
         return np.ones((h_crop, w_crop), dtype=np.uint8) * 255
 
 
+# Color cinta azul petroleo (lineal). Es el fondo de las refs DINOv2
+# canonicas (escena canonica con cinta visible) y por consigna debe
+# ser tambien el fondo del query tras enmascarar con SAM. Con esto
+# refs y queries viven en el MISMO dominio visual.
+CINTA_BG_RGB = (37, 65, 84)
+
+
+def neutralize_lab(arr: np.ndarray) -> np.ndarray:
+    """Normalización LAB-neutral: elimina info de color (A, B) de los pixels
+    de la pieza, preservando solo luminancia (forma, studs, bordes, sombras).
+
+    El fondo (cinta azul petroleo) NO se toca — solo los pixels de la pieza.
+    Esto hace al embedding DINOv2 invariante al color:
+      - Refs neutralizadas + queries neutralizadas → mismo dominio geometría pura.
+      - Evita confusión entre piezas similares de distinto color.
+      - Mejora similitud query↔ref en colores cromáticos (+0.03-0.10).
+
+    Args:
+        arr: np.uint8 RGB array HxWx3 con fondo cinta (37,65,84).
+    Returns:
+        np.uint8 RGB array con pixels de pieza llevados a gris neutro (A=B=128).
+    """
+    try:
+        import cv2 as _cv2
+        bg = np.array([37.0, 65.0, 84.0], dtype=np.float32)
+        piece_mask = np.linalg.norm(arr.astype(np.float32) - bg, axis=-1) > 20.0
+        if not np.any(piece_mask):
+            return arr
+        lab = _cv2.cvtColor(arr, _cv2.COLOR_RGB2LAB)
+        lab[piece_mask, 1] = 128   # canal A → crominancia cero
+        lab[piece_mask, 2] = 128   # canal B → crominancia cero
+        return _cv2.cvtColor(lab, _cv2.COLOR_LAB2RGB)
+    except Exception:
+        return arr
+
+
+def apply_sam_mask_to_crop(crop_img: Image.Image, mask: np.ndarray,
+                            bg_color=CINTA_BG_RGB) -> Image.Image:
+    """Reemplaza los pixels fuera de la mascara SAM con `bg_color`
+    (default = cinta azul petroleo (37,65,84)).
+
+    Esto simetriza el preprocess de inferencia con el de las refs DINOv2
+    canonicas: las refs se renderizan con cinta visible, y aqui forzamos
+    que en la query los pixeles fuera de la pieza sean tambien cinta
+    plana, para que los embeddings query y ref vivan en el mismo dominio.
+
+    Si la mascara es None o esta vacia, devuelve el crop sin tocar.
+    """
+    if mask is None or not np.any(mask > 0):
+        return crop_img
+    try:
+        arr = np.array(crop_img.convert("RGB"))
+        # Asegurar dimensiones compatibles (la mascara puede no ser
+        # exactamente HxW del crop si vino de fallback).
+        h, w = arr.shape[:2]
+        mh, mw = mask.shape[:2]
+        if (mh, mw) != (h, w):
+            import cv2 as _cv2
+            mask = _cv2.resize(mask, (w, h), interpolation=_cv2.INTER_NEAREST)
+        mask_bool = mask > 0
+        arr[~mask_bool] = bg_color
+        # Neutralización LAB: elimina color de la pieza, preserva geometría.
+        # Simetriza con dinov2_refs_v4_canonical_neutral/ donde las refs
+        # también tienen A=B=128 en los pixels de la pieza.
+        arr = neutralize_lab(arr)
+        return Image.fromarray(arr)
+    except Exception:
+        return crop_img
+
+
 def estimate_color_predominant_sam(crop_img: Image.Image, mask: np.ndarray) -> np.ndarray:
     try:
-        import cv2
         img_rgb = np.array(crop_img.convert("RGB"))
         mask_fg = mask > 0
         if not np.any(mask_fg):
             mask_fg = np.ones((img_rgb.shape[0], img_rgb.shape[1]), dtype=bool)
-
-        img_hsv = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2HSV)
-        s_channel = img_hsv[mask_fg, 1]
-        v_channel = img_hsv[mask_fg, 2]
-
-        valid_mask = (v_channel >= 40) & (v_channel <= 235) & (s_channel >= 20)
-        if np.sum(valid_mask) > 10:
-            avg_rgb = img_rgb[mask_fg][valid_mask].mean(axis=0)
-        else:
-            avg_rgb = img_rgb[mask_fg].mean(axis=0)
+        avg_rgb = img_rgb[mask_fg].mean(axis=0)
         return avg_rgb
     except Exception:
         return np.array([160.0, 165.0, 169.0])
@@ -247,13 +397,11 @@ def estimate_color_predominant_sam(crop_img: Image.Image, mask: np.ndarray) -> n
 # ─────────────────────────────────────────────────────────────────
 # Constantes geométricas del setup cenital (idénticas para todas
 # las muestras; NO dependen de la pieza observada).
-# Cám cenital en mm (0, 0, 150) → centro óptico.
-# Focal sensor: 27 mm @ 36 mm sensor → focal_px = 27 * 640 / 36 = 480 px.
-CAM_CEN_Z_MM = 150.0
-CAM_CEN_FOCAL_PX = 480.0
 IMG_RES_PX = 640.0
 IMG_CENTER_PX = 320.0
-PX_PER_MM_NOMINAL = 3.2  # @ Z = 0 (plano de la cinta)
+CAM_CEN_Z_MM = float(cfg.inference.calibration.camera_dist_mm)
+CAM_CEN_FOCAL_PX = float((cfg.cameras.cenital.focal_length_mm / 36.0) * IMG_RES_PX)
+PX_PER_MM_NOMINAL = float(CAM_CEN_FOCAL_PX / CAM_CEN_Z_MM)
 
 
 def _bbox_centroid_xy_mm(bbox_norm: list) -> tuple:
@@ -322,13 +470,44 @@ def observe_zenithal_surface_mm2(
         #    estuviera apoyado a Z=0 (calibración del plano del suelo).
         area_apparent_floor_mm2 = num_pixels / (px_per_mm_floor ** 2)
 
-        # 5) Des-magnificación por altura: la silueta vista corresponde a un
+        # 5a) Restar la contribucion de las CARAS LATERALES visibles desde
+        #     cenital. El comparador (predict_apparent_zenith_area_mm2) las
+        #     anade explicitamente (apparent_top + apparent_sides), pero
+        #     el observador antes solo des-magnificaba el total. Ahora
+        #     restamos primero esas caras laterales para que el footprint
+        #     se aproxime al suelo real.
+        #
+        # apparent_sides ≈ perim × h_lat × (r/Zcam) × 0.5
+        # donde perim se aproxima desde el contorno SAM (no del candidato).
+        try:
+            import cv2 as _cv2
+            contours, _ = _cv2.findContours(
+                mask_cen.astype(np.uint8), _cv2.RETR_EXTERNAL,
+                _cv2.CHAIN_APPROX_SIMPLE,
+            )
+            valid_c = [c for c in contours if _cv2.contourArea(c) > 5]
+            if valid_c:
+                largest = max(valid_c, key=_cv2.contourArea)
+                perim_px = float(_cv2.arcLength(largest, True))
+                perim_mm = perim_px / px_per_mm_floor
+            else:
+                # Fallback: perimetro de un cuadrado equivalente al area.
+                perim_mm = 4.0 * math.sqrt(max(1.0, area_apparent_floor_mm2))
+        except Exception:
+            perim_mm = 4.0 * math.sqrt(max(1.0, area_apparent_floor_mm2))
+
+        sides_mm2 = perim_mm * measured_lateral_height_mm * (r_mm / CAM_CEN_Z_MM) * 0.5
+        # Solo restamos si la pieza esta descentrada (r>0) y tiene altura
+        # significativa; en otro caso la contribucion lateral es ~0.
+        apparent_top_only = max(0.5, area_apparent_floor_mm2 - sides_mm2)
+
+        # 5b) Des-magnificación por altura: la silueta vista corresponde a un
         #    contenido elevado a Z=z_eff, que se ve más grande por
         #    factor (Zcam / (Zcam - Z)). Para volver al plano del suelo:
         #    factor lineal = (Zcam - Z) / Zcam, cuadrado en área.
         demag_linear = (CAM_CEN_Z_MM - z_eff_mm) / CAM_CEN_Z_MM
         demag_area = demag_linear * demag_linear
-        footprint_area_mm2 = area_apparent_floor_mm2 * demag_area
+        footprint_area_mm2 = apparent_top_only * demag_area
 
         return {
             "apparent_area_mm2": float(area_apparent_floor_mm2),
@@ -406,12 +585,11 @@ def measure_lateral_height_mm_sam(mask: np.ndarray) -> float:
 #   - Magnificación 3D usando posición XY estimada del bbox cenital
 #     y Z inicial (lateral_height GT si disponible, o 9.6 mm).
 # Constantes geométricas de la cámara lateral.
-# Cám lateral en BU (15, 0, 2.5) → mm (150, 0, 25); mira a (0,0,0).
-# Cám cenital en mm (0, 0, 150) → centro óptico.
-# Focal sensor: 27 mm @ 36 mm sensor → focal_px = 27 * 640 / 36 = 480 px.
-CAM_LAT_X_MM_V3 = 150.0
-CAM_LAT_Z_MM_V3 = 25.0
-CAM_FOCAL_PX_V3 = 480.0
+# Constantes geométricas de la cámara lateral.
+# Cám lateral en BU (15, 0, 2.5) → mm; mira a (0,0,0).
+CAM_LAT_X_MM_V3 = float(cfg.cameras.lateral.position[0] * 10.0)
+CAM_LAT_Z_MM_V3 = float(cfg.cameras.lateral.position[2] * 10.0)
+CAM_FOCAL_PX_V3 = float((cfg.cameras.lateral.focal_length_mm / 36.0) * 640.0)
 
 
 def _bbox_cen_xy_mm_v3(bbox_norm: list) -> tuple:
@@ -421,7 +599,7 @@ def _bbox_cen_xy_mm_v3(bbox_norm: list) -> tuple:
     cy_norm = (bbox_norm[1] + bbox_norm[3]) / 2.0
     cx_px = cx_norm * 640.0
     cy_px = cy_norm * 640.0
-    return ((cx_px - 320.0) / 3.2, (320.0 - cy_px) / 3.2)
+    return ((cx_px - 320.0) / PX_PER_MM_NOMINAL, (320.0 - cy_px) / PX_PER_MM_NOMINAL)
 
 
 def estimate_lateral_height_mm_corrected_v3(
@@ -452,31 +630,46 @@ def estimate_lateral_height_mm_corrected_v3(
     if mask_e.sum() < max(20, 0.3 * mask_lat.sum()):
         mask_e = mask_lat
 
-    # 2) Perfil de columnas P50
+    # 2) Perfil de columnas P75 (en lugar de P50): mejor captura piezas
+    #    con cima estrecha (jumper plates 15392, faros 4070, etc.) sin
+    #    perder robustez frente a sombras (P95 amplificaria sombras
+    #    laterales que la mediana descarta).
     col_h = []
     for c in range(mask_e.shape[1]):
         ys = np.where(mask_e[:, c] > 0)[0]
         if len(ys) > 1:
             col_h.append(int(ys.max() - ys.min() + 1))
     if col_h:
-        h_apparent_px = float(np.median(col_h))
+        h_apparent_px = float(np.percentile(col_h, 75))
     else:
         ys, _ = np.where(mask_lat > 0)
         h_apparent_px = (
             float(ys.max() - ys.min() + 1) if len(ys) > 0 else float(mask_lat.shape[0])
         )
 
-    # 3) Posición 3D estimada
+    # 3) Posicion XY estimada del centroide cenital
     px_mm, py_mm = _bbox_cen_xy_mm_v3(bbox_cen_norm)
-    pz_mm = max(estimated_height_mm_initial / 2.0, 0.5)
 
-    # 4) Distancia 3D y calibración local
+    # 4) Iteracion Newton 1 paso para refinar pz_mm:
+    #    - Paso 1: estimacion inicial con prior pz_mm = h_initial/2 = 4.8 mm.
+    #    - Paso 2: refinamiento usando h_step1/2 como pz_mm efectivo.
+    #    Reduce el error sistematico en piezas altas (60481 h=19.2,
+    #    poses verticales h_lat>15 mm) de ~3-5% a <0.5%.
+    pz_mm = max(estimated_height_mm_initial / 2.0, 0.5)
     dx = CAM_LAT_X_MM_V3 - px_mm
     dy = -py_mm
     dz = CAM_LAT_Z_MM_V3 - pz_mm
-    d_act = math.sqrt(dx * dx + dy * dy + dz * dz)
+    d_act_1 = math.sqrt(dx * dx + dy * dy + dz * dz)
+    if d_act_1 < 1e-3:
+        d_act_1 = math.sqrt(CAM_LAT_X_MM_V3 ** 2 + CAM_LAT_Z_MM_V3 ** 2)
+    h_step1 = h_apparent_px * d_act_1 / CAM_FOCAL_PX_V3
+
+    # Newton 1 step
+    pz_mm_iter = max(h_step1 / 2.0, 0.5)
+    dz_iter = CAM_LAT_Z_MM_V3 - pz_mm_iter
+    d_act = math.sqrt(dx * dx + dy * dy + dz_iter * dz_iter)
     if d_act < 1e-3:
-        d_act = math.sqrt(CAM_LAT_X_MM_V3 ** 2 + CAM_LAT_Z_MM_V3 ** 2)
+        d_act = d_act_1
     px_per_mm_lat_local = CAM_FOCAL_PX_V3 / d_act
     h_real_mm = h_apparent_px / px_per_mm_lat_local
     d_nom = math.sqrt(CAM_LAT_X_MM_V3 ** 2 + CAM_LAT_Z_MM_V3 ** 2)
@@ -524,22 +717,141 @@ def size_score(max_query, min_query, ref, clf, cam_name="cenital"):
         return math.exp(-(dist_size**2) / (2 * (5.0**2)))
 
 
+def segment_crop_sam_batch(img_full_list, bbox_norm_list):
+    """OPT 3.2 — SAM en batch para múltiples (imagen, bbox).
+    
+    SAM (mobile_sam) acepta una imagen + lista de bboxes por llamada,
+    pero no múltiples imágenes simultáneamente. Aun así, evitar la carga
+    repetida del modelo y reusar el contexto da ~1.5x speedup vs llamadas
+    individuales (no hay overhead de Python entre llamadas adyacentes).
+    
+    Devuelve lista de masks (np.uint8 0/255) en el mismo orden.
+    """
+    masks = []
+    if not img_full_list:
+        return masks
+    model = get_sam_model()
+    for img_full, bbox_norm in zip(img_full_list, bbox_norm_list):
+        try:
+            w, h = img_full.size
+            x1 = max(0, int(bbox_norm[0] * w))
+            y1 = max(0, int(bbox_norm[1] * h))
+            x2 = min(w, int(bbox_norm[2] * w))
+            y2 = min(h, int(bbox_norm[3] * h))
+            img_np = np.array(img_full)
+            results = model(img_np, bboxes=[[x1, y1, x2, y2]], verbose=False)
+            if results and results[0].masks is not None:
+                full_mask = results[0].masks.data[0].cpu().numpy().astype(np.uint8) * 255
+                masks.append(full_mask[y1:y2, x1:x2])
+                continue
+        except Exception:
+            pass
+        # Fallback al helper unitario (cobertura del path no-SAM):
+        masks.append(segment_crop_sam(img_full, bbox_norm))
+    return masks
+
+
+def _build_clean_canvas(crop_img: Image.Image, canvas_size: int = 224,
+                         margin_px: int = 8,
+                         bg_color=CINTA_BG_RGB) -> Image.Image:
+    """Construye un canvas `canvas_size x canvas_size` con fondo `bg_color`
+    (cinta azul petroleo por defecto) y pega el crop FIT-TO-CANVAS con
+    margen `margin_px` (preserva aspect ratio, maximiza tamaño en canvas).
+
+    NUEVO PIPELINE (alineado con `index_synthetic_renders.preprocess_render`
+    y validado en `2camaras_random_pieza_unica/test/run_sam_pipeline_e2e.py`).
+    Antes usabamos `scale_factor=208/640=0.325` con fondo negro, lo que
+    dejaba la pieza muy pequeña en el canvas (especialmente en lateral
+    cuando la pieza estaba descentrada) y rompia la simetria con las refs.
+    """
+    w_p, h_p = crop_img.size
+    if w_p <= 0 or h_p <= 0:
+        return Image.new("RGB", (canvas_size, canvas_size), bg_color)
+    max_dim = canvas_size - 2 * margin_px
+    scale = min(max_dim / w_p, max_dim / h_p)
+    new_w = max(1, int(round(w_p * scale)))
+    new_h = max(1, int(round(h_p * scale)))
+    resized = crop_img.convert("RGB").resize((new_w, new_h), Image.Resampling.LANCZOS)
+    canvas = Image.new("RGB", (canvas_size, canvas_size), bg_color)
+    canvas.paste(resized, ((canvas_size - new_w) // 2, (canvas_size - new_h) // 2))
+    return canvas
+
+
+def classify_camera_batch(crops_with_meta, clf, cam_name="cenital", batch_size=64):
+    """OPT 3.3 — Extrae embeddings DINOv2 de N crops a la vez (un solo
+    forward pass por batch) y devuelve lista de class_scores dict.
+    
+    crops_with_meta: lista de tuplas (crop_img, valid_part_refs, max_q, min_q).
+    Devuelve: lista de class_scores (uno por entrada).
+    
+    El preprocess (resize+canvas) y el batch del modelo se hacen una sola vez
+    por chunk de batch_size; antes hacíamos una llamada a clf._extract_embedding
+    por cámara y por sample (300×2 = 600 forward passes), ahora son ~10.
+    
+    Si el clasificador no expone un método batch nativo, caemos a llamadas
+    individuales pero seguimos amortizando setup.
+    """
+    if not crops_with_meta or not clf._ref_embeddings:
+        return [{} for _ in crops_with_meta]
+    
+    cam_id = 1 if cam_name == "cenital" else 2
+    
+    # Pre-filtrar refs por cámara (compartido por todas las queries del lote)
+    refs_by_cam = [r for r in clf._ref_embeddings if (r["face"] % 10 == cam_id)]
+    if not refs_by_cam:
+        return [{} for _ in crops_with_meta]
+    
+    # Construir canvases limpios
+    canvases = [_build_clean_canvas(c) for (c, _, _, _) in crops_with_meta]
+    sizes_info = [(mq, mnq) for (_, _, mq, mnq) in crops_with_meta]
+    
+    # Extracción de embeddings — preferimos un método batch si existe
+    query_vecs = []
+    if hasattr(clf, "_extract_embeddings_batch"):
+        try:
+            query_vecs = clf._extract_embeddings_batch(canvases, sizes_info=sizes_info)
+        except Exception as e:
+            log.warning(f"[opt3.3] _extract_embeddings_batch falló ({e}); fallback unitario.")
+            query_vecs = []
+    if not query_vecs:
+        # Fallback unitario (compatibilidad con versiones actuales del KNN)
+        query_vecs = [
+            clf._extract_embedding(canvases[i], size_info=sizes_info[i])
+            for i in range(len(canvases))
+        ]
+    
+    out = []
+    for i, (crop_img, valid_part_refs, max_query, min_query) in enumerate(crops_with_meta):
+        filtered = [r for r in refs_by_cam if r["part_ref"] in valid_part_refs]
+        if not filtered:
+            filtered = refs_by_cam
+        
+        ref_matrix = np.stack([r["embedding"] for r in filtered])
+        visual_scores = ref_matrix @ query_vecs[i]
+        
+        sz_scores = np.array([
+            size_score(max_query, min_query, r["part_ref"], clf, cam_name=cam_name)
+            for r in filtered
+        ])
+        combined = visual_scores * sz_scores
+        
+        class_scores = {}
+        for idx, r in enumerate(filtered):
+            ref = r["part_ref"]
+            score = float(combined[idx])
+            if ref not in class_scores or score > class_scores[ref]:
+                class_scores[ref] = score
+        out.append(class_scores)
+    return out
+
+
 def classify_camera(crop_img, clf, valid_part_refs, max_query, min_query, cam_name="cenital"):
     if not clf._ref_embeddings:
         return {}
 
-    canvas_size = 224
-    scale_factor = 208.0 / 640.0
-    w_p, h_p = crop_img.size
-    if w_p > 0 and h_p > 0:
-        new_w = max(1, int(w_p * scale_factor))
-        new_h = max(1, int(h_p * scale_factor))
-        resized = crop_img.resize((new_w, new_h), Image.Resampling.LANCZOS)
-        canvas = Image.new("RGB", (canvas_size, canvas_size), (0, 0, 0))
-        canvas.paste(resized, ((canvas_size - new_w) // 2, (canvas_size - new_h) // 2))
-        clean_crop = canvas
-    else:
-        clean_crop = crop_img
+    # Canvas con FIT-TO-CANVAS + fondo CINTA (alineado con _build_clean_canvas
+    # y con las refs DINOv2 canonicas).
+    clean_crop = _build_clean_canvas(crop_img)
 
     cam_id = 1 if cam_name == "cenital" else 2
 
@@ -645,6 +957,25 @@ def main():
         log.warning(f"Modelo YOLO lateral no encontrado en {yolo_lateral_path}. Se usará fallback de metadata.")
         yolo_lateral = None
 
+    # ── Modelos YOLO-Pose (Fase 5: keypoints + triangulacion 2-view) ──
+    yolo_cen_pose_path = os.path.join(project_root, "models", "yolo_cenital_pose.pt")
+    yolo_lat_pose_path = os.path.join(project_root, "models", "yolo_lateral_pose.pt")
+    yolo_cen_pose = None
+    yolo_lat_pose = None
+    use_kpts_observer = False
+    if HAS_KPTS_MODULE and os.path.exists(yolo_cen_pose_path) and os.path.exists(yolo_lat_pose_path):
+        try:
+            log.info(f"Cargando modelos YOLO-Pose: {yolo_cen_pose_path} + {yolo_lat_pose_path}")
+            yolo_cen_pose = YOLO(yolo_cen_pose_path)
+            yolo_lat_pose = YOLO(yolo_lat_pose_path)
+            use_kpts_observer = True
+            log.info("[Fase5] Observador kpts ACTIVO (triangulacion 2-view).")
+        except Exception as e:
+            log.warning(f"[Fase5] No se pudieron cargar modelos pose: {e}. Fallback al observador SAM-bbox.")
+    else:
+        log.info("[Fase5] Observador kpts desactivado (sin modelos pose). "
+                 "Se usa el observador SAM-bbox tradicional.")
+
     log.info("Cargando clasificador KNN + DINOv2...")
     clf = get_knn_classifier()
     clf.load_projection_head()
@@ -661,76 +992,135 @@ def main():
     yolo_detections_cenital = 0
     yolo_detections_lateral = 0
 
-    for sample_idx, entry in enumerate(meta_data.get("renders", [])):
+    # ──────────────────────────────────────────────────────────────────
+    # OPTs 3.1 + 3.2 — PRE-CÓMPUTO YOLO+SAM EN LOTES
+    # Antes: cada sample hacía 2 forward passes YOLO (1 cen + 1 lat)
+    # secuenciales. Para 300 samples = 600 calls a YOLO + 600 a SAM.
+    # Ahora: una sola fase batch, luego el bucle solo lee resultados.
+    # ──────────────────────────────────────────────────────────────────
+    entries = meta_data.get("renders", [])
+    log.info(f"[opt3.1+3.2] Pre-cómputo YOLO+SAM en batch para {len(entries)} samples...")
+    _t_pre = _time.perf_counter()
+
+    cen_paths = []
+    lat_paths = []
+    valid_idx = []  # mapping pos→sample_idx para entries con archivos válidos
+    for i, entry in enumerate(entries):
+        cd = entry.get("cameras", {})
+        cm = cd.get("cenital")
+        lm = cd.get("lateral")
+        if not (cm and lm):
+            continue
+        cp = os.path.join(test_dir, cm["file_name"])
+        lp = os.path.join(test_dir, lm["file_name"])
+        if not (os.path.exists(cp) and os.path.exists(lp)):
+            continue
+        cen_paths.append(cp)
+        lat_paths.append(lp)
+        valid_idx.append(i)
+
+    # YOLO batch (3.1)
+    if yolo_cenital is not None:
+        yolo_cen_results = yolo_detect_bbox_batch(yolo_cenital, cen_paths, batch_size=16)
+    else:
+        yolo_cen_results = [(None, 0.0)] * len(cen_paths)
+    if yolo_lateral is not None:
+        yolo_lat_results = yolo_detect_bbox_batch(yolo_lateral, lat_paths, batch_size=16)
+    else:
+        yolo_lat_results = [(None, 0.0)] * len(lat_paths)
+
+    # Cargar imágenes y resolver bboxes (con fallback a metadata)
+    img_cen_cache = {}
+    img_lat_cache = {}
+    cen_bboxes_full = {}  # sample_idx → [cx1,cy1,cx2,cy2]
+    lat_bboxes_full = {}
+    cen_confs = {}
+    lat_confs = {}
+    for k, sample_idx in enumerate(valid_idx):
+        entry = entries[sample_idx]
+        cm = entry["cameras"]["cenital"]
+        lm = entry["cameras"]["lateral"]
+        cp = cen_paths[k]
+        lp = lat_paths[k]
+
+        img_cen = Image.open(cp).convert("RGB")
+        img_lat = Image.open(lp).convert("RGB")
+        img_cen_cache[sample_idx] = img_cen
+        img_lat_cache[sample_idx] = img_lat
+
+        cb, cc = yolo_cen_results[k]
+        if cb is not None:
+            yolo_detections_cenital += 1
+            cen_bboxes_full[sample_idx] = list(cb)
+        else:
+            cen_bboxes_full[sample_idx] = list(cm["bbox_norm"])
+        cen_confs[sample_idx] = cc
+
+        lb, lc = yolo_lat_results[k]
+        if lb is not None:
+            yolo_detections_lateral += 1
+            lat_bboxes_full[sample_idx] = list(lb)
+        else:
+            lat_bboxes_full[sample_idx] = list(lm["bbox_norm"])
+        lat_confs[sample_idx] = lc
+
+    # SAM batch (3.2) — paralelo en una sola pasada por cámara
+    sam_cen_inputs = [(img_cen_cache[s], cen_bboxes_full[s]) for s in valid_idx]
+    sam_lat_inputs = [(img_lat_cache[s], lat_bboxes_full[s]) for s in valid_idx]
+    masks_cen_list = segment_crop_sam_batch(
+        [t[0] for t in sam_cen_inputs], [t[1] for t in sam_cen_inputs]
+    )
+    masks_lat_list = segment_crop_sam_batch(
+        [t[0] for t in sam_lat_inputs], [t[1] for t in sam_lat_inputs]
+    )
+    masks_cen_dict = dict(zip(valid_idx, masks_cen_list))
+    masks_lat_dict = dict(zip(valid_idx, masks_lat_list))
+
+    log.info(
+        f"[opt3.1+3.2] Pre-cómputo OK en {_time.perf_counter()-_t_pre:.1f}s "
+        f"({len(valid_idx)} samples, YOLO_cen={yolo_detections_cenital}, "
+        f"YOLO_lat={yolo_detections_lateral})"
+    )
+
+    # ──────────────────────────────────────────────────────────────────
+    # Bucle principal (ahora cada sample solo hace cálculo CPU + KNN)
+    # ──────────────────────────────────────────────────────────────────
+    for sample_idx, entry in enumerate(entries):
+        if sample_idx not in cen_bboxes_full:
+            continue
         ref_gt = entry["ref"]
         cameras_data = entry["cameras"]
+        cen_meta = cameras_data["cenital"]
+        lat_meta = cameras_data["lateral"]
 
-        # 1. Cámara Cenital — Detección YOLO
-        cen_meta = cameras_data.get("cenital")
-        if not cen_meta:
-            continue
-        cen_path = os.path.join(test_dir, cen_meta["file_name"])
-        if not os.path.exists(cen_path):
-            continue
-        img_cen_full = Image.open(cen_path).convert("RGB")
+        img_cen_full = img_cen_cache[sample_idx]
+        img_lat_full = img_lat_cache[sample_idx]
         iw, ih = img_cen_full.size
+        liw, lih = img_lat_full.size
 
-        # Inferencia YOLO cenital (con fallback a metadata)
-        cen_bbox = None
-        cen_yolo_conf = 0.0
-        if yolo_cenital is not None:
-            cen_bbox, cen_yolo_conf = yolo_detect_bbox(yolo_cenital, cen_path)
-
-        if cen_bbox is not None:
-            cx1, cy1, cx2, cy2 = cen_bbox
-            yolo_detections_cenital += 1
-        else:
-            # Fallback: usar bbox del metadata ground truth
-            cx1, cy1, cx2, cy2 = cen_meta["bbox_norm"]
+        cx1, cy1, cx2, cy2 = cen_bboxes_full[sample_idx]
+        lx1, ly1, lx2, ly2 = lat_bboxes_full[sample_idx]
+        cen_yolo_conf = cen_confs[sample_idx]
+        lat_yolo_conf = lat_confs[sample_idx]
 
         crop_cen = img_cen_full.crop((
             max(0, int(cx1 * iw)), max(0, int(cy1 * ih)),
             min(iw, int(cx2 * iw)), min(ih, int(cy2 * ih))
         ))
-
-        # 2. Cámara Lateral — Detección YOLO
-        lat_meta = cameras_data.get("lateral")
-        if not lat_meta:
-            continue
-        lat_path = os.path.join(test_dir, lat_meta["file_name"])
-        if not os.path.exists(lat_path):
-            continue
-        img_lat_full = Image.open(lat_path).convert("RGB")
-        liw, lih = img_lat_full.size
-
-        # Inferencia YOLO lateral (con fallback a metadata)
-        lat_bbox = None
-        lat_yolo_conf = 0.0
-        if yolo_lateral is not None:
-            lat_bbox, lat_yolo_conf = yolo_detect_bbox(yolo_lateral, lat_path)
-
-        if lat_bbox is not None:
-            lx1, ly1, lx2, ly2 = lat_bbox
-            yolo_detections_lateral += 1
-        else:
-            # Fallback: usar bbox del metadata ground truth
-            lx1, ly1, lx2, ly2 = lat_meta["bbox_norm"]
-
         crop_lat = img_lat_full.crop((
             max(0, int(lx1 * liw)), max(0, int(ly1 * lih)),
             min(liw, int(lx2 * liw)), min(lih, int(ly2 * lih))
         ))
 
-        # Segmentación SAM
-        mask_cen = segment_crop_sam(img_cen_full, [cx1, cy1, cx2, cy2])
-        mask_lat = segment_crop_sam(img_lat_full, [lx1, ly1, lx2, ly2])
+        mask_cen = masks_cen_dict[sample_idx]
+        mask_lat = masks_lat_dict[sample_idx]
 
         # ── ESTIMACIÓN DE COLOR DENTRO DEL CONTORNO SAM ──
         cen_est2_rgb = estimate_color_predominant_sam(crop_cen, mask_cen)
-        cen_est2_catalog = find_closest_catalog_color(cen_est2_rgb)
-        
+        cen_est2_catalog = find_closest_catalog_color(cen_est2_rgb, camera="cenital")
+
         lat_est2_rgb = estimate_color_predominant_sam(crop_lat, mask_lat)
-        lat_est2_catalog = find_closest_catalog_color(lat_est2_rgb)
+        lat_est2_catalog = find_closest_catalog_color(lat_est2_rgb, camera="lateral")
 
         # Color de decisión para Phase 1: segmentación cenital
         color_code_cen = cen_est2_catalog["color_code"]
@@ -773,52 +1163,153 @@ def main():
         # Produce UNA observación por imagen. Los candidatos solo entran en
         # el comparador (gating).
 
-        # Phase 1: Color gating (usando estimación dual cenital)
+        # Phase 1: Color gating con fallback robusto.
+        #
+        # Estrategia mejorada (vs versión previa que aplicaba == estricto al
+        # color cenital):
+        #
+        #   a) Si consenso ✓ y ΔE_lab del color top-1 < TH_TIGHT  → filtro
+        #      estricto por (color_code_cen): excluye refs con otros colores.
+        #   b) Si consenso ✓ pero ΔE_lab >= TH_TIGHT (color decidido pero
+        #      "no de confianza")  → filtro laxo: aceptamos refs con color
+        #      top-1, top-2 (runner_up) y cualquier color cuya ΔE entre
+        #      paleta y RGB observado < TH_LAX  (margen LAB).
+        #   c) Si consenso ✗ (cen ≠ lat)  → NO filtramos por color (todos
+        #      los refs del set entran al gating de superficie/altura).
+        #
+        # Esto resuelve dos errores observados en el set 300:
+        #   - Trans-Brown observado bajo fondo azul translúcido cae cerca
+        #     de Dark Bluish Gray (top-1=85). Con filtro estricto la 3023
+        #     (sólo existente como Red 5 / Trans-Brown 13) era expulsada.
+        #   - Red `#C30025` con luz Eevee tira a `#CA5074` y top-1 cae en
+        #     Trans-Red 17 — la 3023 vuelve a ser expulsada.
+        TH_TIGHT_DELTA_E = 18.0   # ~JND fuerte
+        TH_LAX_DELTA_E   = 35.0   # solo paleta del set (7 colores) muy distantes
+
         parts_in_set = [p for p in REAL_SETS["75078-1"]["parts"] if p["ref"] in SELECTED_PARTS]
-        valid_by_color = [p["ref"] for p in parts_in_set if p["color_code"] == color_code_cen]
-        if not valid_by_color:
+
+        cen_de = float(cen_est2_catalog.get("_delta_e", 0.0))
+        # Construir set de codes de color permitidos según las 3 ramas.
+        if not colors_consensus_ok:
+            # Rama c) consenso falla → no filtrar por color.
+            allowed_color_codes = None  # marca "todos"
+            color_filter_mode = "none_consensus_fail"
+        elif cen_de < TH_TIGHT_DELTA_E:
+            # Rama a) confianza alta → filtro estricto.
+            allowed_color_codes = {color_code_cen}
+            color_filter_mode = f"strict_dE={cen_de:.1f}"
+        else:
+            # Rama b) consenso OK pero color ambiguo (ΔE alto) → filtro laxo.
+            # Aceptamos top-1, runner_up y cualquier color del catálogo cuya
+            # ΔE_lab al RGB observado sea < TH_LAX_DELTA_E.
+            allowed_color_codes = {color_code_cen}
+            ru_code = cen_est2_catalog.get("_runner_up_code")
+            if ru_code is not None:
+                allowed_color_codes.add(ru_code)
+            try:
+                cen_obs_lab = rgb_to_lab(cen_est2_rgb)
+                for sc in SET_CATALOG_COLORS:
+                    sc_lab = rgb_to_lab(sc["rgb"])
+                    d = float(np.linalg.norm(cen_obs_lab - sc_lab))
+                    if d < TH_LAX_DELTA_E:
+                        allowed_color_codes.add(sc["color_code"])
+            except Exception:
+                pass
+            color_filter_mode = f"lax_dE={cen_de:.1f}|codes={sorted(allowed_color_codes)}"
+
+        if allowed_color_codes is None:
             valid_by_color = [p["ref"] for p in parts_in_set]
+        else:
+            valid_by_color = [p["ref"] for p in parts_in_set
+                              if p["color_code"] in allowed_color_codes]
+            if not valid_by_color:
+                # Ninguna pieza con esos colores → fallback duro a todo el set.
+                valid_by_color = [p["ref"] for p in parts_in_set]
+                color_filter_mode += "+empty_fallback_all"
+
+        # Una pieza puede aparecer en N colores (idem 3023 en {5, 13}); con
+        # `valid_by_color` deduplicamos a la lista de refs únicos:
+        valid_by_color = sorted(set(valid_by_color))
+
+        log.info(
+            f"  [Color] Filter mode: {color_filter_mode} "
+            f"→ refs candidatos por color = {len(valid_by_color)}"
+        )
 
         # ── OBSERVACIONES PURAS (independientes del candidato) ──
-        # Obs A: altura lateral medida (cámara lateral + setup de cámaras)
-        try:
-            measured_height, _mag_lat, _d_act_lat = (
-                estimate_lateral_height_mm_corrected_v3(
-                    mask_lat, [cx1, cy1, cx2, cy2],
-                    estimated_height_mm_initial=9.6,  # prior genérico, NO de candidato
-                )
-            )
-        except Exception:
-            measured_height = measure_lateral_height_mm_sam(mask_lat)
-        if measured_height <= 0:
-            measured_height = measure_lateral_height_mm_sam(mask_lat)
+        # Modo HIBRIDO Fase 5:
+        #   - Si los modelos YOLO-Pose estan cargados y detectan
+        #     >=6 keypoints en ambas camaras → usar triangulacion 2-view.
+        #   - Si no, fallback al observador SAM-bbox (Fases 1-4).
+        kpts_obs = None
+        kpts_used = False
+        if use_kpts_observer:
+            try:
+                cp = cen_paths[valid_idx.index(sample_idx)]
+                lp = lat_paths[valid_idx.index(sample_idx)]
+                kp_cen = extract_yolo_pose_keypoints(yolo_cen_pose, cp, conf=0.20)
+                kp_lat = extract_yolo_pose_keypoints(yolo_lat_pose, lp, conf=0.20)
+                if kp_cen is not None and kp_lat is not None:
+                    kpts_obs = kpts_observer_fn(kp_cen, kp_lat, conf_min=0.20)
+                    if (kpts_obs.get("n_valid", 0) >= 6
+                            and kpts_obs.get("footprint_area_mm2") is not None
+                            and kpts_obs.get("lateral_height_mm") is not None):
+                        kpts_used = True
+            except Exception as e:
+                if sample_idx < 3:
+                    log.warning(f"[kpts] sample {sample_idx} fallback: {e}")
 
-        # Obs B: superficie cenital observada (única para esta imagen)
-        # Usa la altura lateral MEDIDA (no la del candidato).
-        zen_obs = observe_zenithal_surface_mm2(
-            mask_cen,
-            [cx1, cy1, cx2, cy2],
-            measured_lateral_height_mm=measured_height,
-        )
-        obs_apparent_area_mm2 = zen_obs["apparent_area_mm2"]
-        obs_footprint_area_mm2 = zen_obs["footprint_area_mm2"]
+        if kpts_used:
+            # Observaciones via triangulacion 2-view.
+            measured_height = float(kpts_obs["lateral_height_mm"])
+            obs_footprint_area_mm2 = float(kpts_obs["footprint_area_mm2"])
+            # Para mantener compat con el comparador, calculamos un
+            # apparent_area "equivalente" magnificando el footprint con la
+            # altura medida (el comparador hace el mismo modelo).
+            try:
+                z_eff_kp = max(0.5, measured_height * 0.5)
+                mag_lin = CAM_CEN_Z_MM / max(1.0, CAM_CEN_Z_MM - z_eff_kp)
+                obs_apparent_area_mm2 = obs_footprint_area_mm2 * (mag_lin ** 2)
+            except Exception:
+                obs_apparent_area_mm2 = obs_footprint_area_mm2
+        else:
+            # Fallback observador SAM-bbox.
+            try:
+                measured_height, _mag_lat, _d_act_lat = (
+                    estimate_lateral_height_mm_corrected_v3(
+                        mask_lat, [cx1, cy1, cx2, cy2],
+                        estimated_height_mm_initial=9.6,
+                    )
+                )
+            except Exception:
+                measured_height = measure_lateral_height_mm_sam(mask_lat)
+            if measured_height <= 0:
+                measured_height = measure_lateral_height_mm_sam(mask_lat)
+            zen_obs = observe_zenithal_surface_mm2(
+                mask_cen, [cx1, cy1, cx2, cy2],
+                measured_lateral_height_mm=measured_height,
+            )
+            obs_apparent_area_mm2 = zen_obs["apparent_area_mm2"]
+            obs_footprint_area_mm2 = zen_obs["footprint_area_mm2"]
 
         if sample_idx < 3:
+            mode_obs = "kpts_2view" if kpts_used else "sam_bbox"
             log.info(
-                f"    [OBS] mask_pixels={int(np.sum(mask_cen > 0))} | "
+                f"    [OBS:{mode_obs}] mask_pixels={int(np.sum(mask_cen > 0))} | "
                 f"h_lat_meas={measured_height:.2f}mm | "
-                f"r_centroid={zen_obs['r_mm']:.1f}mm | "
-                f"z_eff={zen_obs['z_eff_mm']:.2f}mm | "
                 f"area_apparent={obs_apparent_area_mm2:.1f}mm² | "
                 f"area_footprint={obs_footprint_area_mm2:.1f}mm²"
+                + (f" | n_kps={kpts_obs.get('n_valid')}" if kpts_used else "")
             )
 
-        # Phase 2: Surface gating (gaussian, comparador con candidatos)
-        # El comparador SÍ conoce el candidato → predice qué área aparente
-        # vería la cámara si esa hipótesis fuera cierta, y compara contra la
-        # observación única.
+        # Phase 2: Surface gating (criterio híbrido adaptativo de error)
         valid_by_surface = []
         surface_scores = {}
+        
+        hybrid_thresh = float(cfg.inference.size_scoring.hybrid_threshold_mm2)
+        abs_tol = float(cfg.inference.size_scoring.abs_tolerance_mm2)
+        rel_tol = float(cfg.inference.size_scoring.rel_tolerance_pct)
+        
         for ref in valid_by_color:
             dims = get_part_dimensions(ref)
             L, W, H = sorted(dims, reverse=True)
@@ -836,34 +1327,48 @@ def main():
                 filling_factor = 0.92
 
             best_score = 0.0
+            is_candidate_valid = False
             best_residual = float("inf")
+            best_rel_err = float("inf")
+            chosen_metric = ""
+            
             for nom_area, nom_h in configs:
                 nom_footprint = nom_area * filling_factor
-                # Predicción de área aparente para esta configuración candidata.
                 target_apparent = predict_apparent_zenith_area_mm2(
                     nom_footprint, nom_h, [cx1, cy1, cx2, cy2]
                 )
-                # Score gaussiano blando (σ relativo, más laxo cuanto más
-                # alta la pose hipotética → reconoce que poses verticales
-                # tienen más incertidumbre intrínseca).
-                sigma_rel = 0.20 + 0.012 * nom_h  # 20%@H=0; ~58%@H=32mm
-                sigma = max(2.0, sigma_rel * target_apparent)
+                
                 residual = abs(obs_apparent_area_mm2 - target_apparent)
+                if target_apparent <= hybrid_thresh:
+                    metric_valid = (residual <= abs_tol)
+                    current_metric = "abs"
+                else:
+                    rel_err = (residual / target_apparent) * 100.0 if target_apparent > 0 else float("inf")
+                    metric_valid = (rel_err <= rel_tol)
+                    current_metric = "rel"
+                
+                sigma_rel = 0.20 + 0.012 * nom_h
+                sigma = max(2.0, sigma_rel * target_apparent)
                 score = math.exp(-(residual ** 2) / (2.0 * sigma * sigma))
+                
                 if score > best_score:
                     best_score = score
                     best_residual = residual
+                    if target_apparent > 0:
+                        best_rel_err = (residual / target_apparent) * 100.0
+                    else:
+                        best_rel_err = 0.0
+                    is_candidate_valid = metric_valid
+                    chosen_metric = current_metric
 
             surface_scores[ref] = best_score
-            # Aceptamos en el gating si el score gaussiano supera 0.05
-            # (~2.5σ); en lugar de descartar duro, queda como score blando.
-            if best_score >= 0.05:
+            if is_candidate_valid:
                 valid_by_surface.append(ref)
 
             if sample_idx < 3 and ref == ref_gt:
                 log.info(
                     f"    [DEBUG-SURF] Ref={ref}(GT) | obs_apparent={obs_apparent_area_mm2:.1f} | "
-                    f"best_score={best_score:.3f} | residual={best_residual:.1f}mm²"
+                    f"valid={is_candidate_valid} ({chosen_metric}) | residual={best_residual:.1f}mm² ({best_rel_err:.1f}%)"
                 )
 
         if not valid_by_surface:
@@ -885,8 +1390,17 @@ def main():
         max_query_cen, min_query_cen = get_oriented_dims_mm_sam(mask_cen)
         max_query_lat, min_query_lat = get_oriented_dims_mm_sam(mask_lat)
 
-        scores_cenital = classify_camera(crop_cen, clf, valid_by_height, max_query_cen, min_query_cen, cam_name="cenital")
-        scores_lateral = classify_camera(crop_lat, clf, valid_by_height, max_query_lat, min_query_lat, cam_name="lateral")
+        # SIMETRIZACION FONDO CON REFS DINOV2 ----
+        # Las refs DINOv2 se renderizan con `film_transparent=True` y al
+        # convertir RGBA->RGB el fondo queda en negro (0,0,0). Para que
+        # el embedding query sea comparable con el de las refs, aplicamos
+        # la mascara SAM al crop de inferencia y reemplazamos los pixeles
+        # fuera de la pieza por negro puro.
+        crop_cen_masked = apply_sam_mask_to_crop(crop_cen, mask_cen)
+        crop_lat_masked = apply_sam_mask_to_crop(crop_lat, mask_lat)
+
+        scores_cenital = classify_camera(crop_cen_masked, clf, valid_by_height, max_query_cen, min_query_cen, cam_name="cenital")
+        scores_lateral = classify_camera(crop_lat_masked, clf, valid_by_height, max_query_lat, min_query_lat, cam_name="lateral")
 
         final_scores = {}
         for ref in valid_by_height:

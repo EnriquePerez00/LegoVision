@@ -292,6 +292,164 @@ def setup_studio_lighting():
 
 COLOR_CATALOG = None
 
+
+# ═════════════════════════════════════════════════════════════════════════
+#  Helpers para piezas translúcidas (Trans Red, Trans Brown, Trans Clear, …)
+# ═════════════════════════════════════════════════════════════════════════
+
+def _is_eevee_next() -> bool:
+    """True si Blender ≥ 4.2 (EEVEE Next con raytracing nativo)."""
+    if not IN_BLENDER:
+        return False
+    try:
+        return tuple(bpy.app.version[:2]) >= (4, 2)
+    except Exception:
+        return False
+
+
+def configure_eevee_for_translucent(scene=None):
+    """Activa SSR + Refraction (o Raytracing en 4.2+) para EEVEE.
+
+    Sólo modifica los flags estrictamente necesarios para que las piezas
+    translúcidas refracten correctamente. **NO** altera luces, world, cámara,
+    AO, bloom ni samples TAA. Es idempotente y seguro de invocar varias veces.
+    """
+    if not IN_BLENDER:
+        return
+    scene = scene or bpy.context.scene
+    # Sólo aplica si el motor activo es EEVEE (no Cycles).
+    engine = scene.render.engine or ""
+    if "EEVEE" not in engine.upper():
+        return
+
+    eev = getattr(scene, "eevee", None)
+    if eev is None:
+        return
+
+    if _is_eevee_next():
+        # Blender 4.2+: API unificada bajo "use_raytracing".
+        if hasattr(eev, "use_raytracing"):
+            eev.use_raytracing = True
+        # Algunos builds intermedios mantienen aún "use_ssr_refraction".
+        if hasattr(eev, "use_ssr_refraction"):
+            eev.use_ssr_refraction = True
+    else:
+        # Blender 3.x / 4.0 / 4.1: SSR + Refraction clásicos.
+        if hasattr(eev, "use_ssr"):
+            eev.use_ssr = True
+        if hasattr(eev, "use_ssr_refraction"):
+            eev.use_ssr_refraction = True
+
+
+def _set_principled_input(node, names, value):
+    """Asigna `value` al primer socket de `node` cuyo nombre esté en `names`.
+
+    Útil para sortear renombrados entre versiones del Principled BSDF
+    (e.g. "Transmission" → "Transmission Weight" en 4.x).
+    """
+    for n in names:
+        if n in node.inputs:
+            try:
+                node.inputs[n].default_value = value
+                return True
+            except Exception:
+                pass
+    return False
+
+
+def _build_translucent_lego_material(mat, rgba):
+    """Construye la red de nodos para plástico translúcido LEGO realista.
+
+    Topología (clave para sombras coloreadas en EEVEE/Cycles):
+
+        Principled BSDF ─┐
+                         ├─► Mix Shader.Shader[0]
+        Transparent BSDF ─► Mix Shader.Shader[1]
+        Light Path.Is Shadow Ray ─► Mix Shader.Fac
+                         ▼
+                  Material Output.Surface
+
+    El Principled gestiona refracción/reflexión para rays primarios,
+    y el Transparent BSDF (con el mismo color base) tiñe los rays de
+    sombra para que la sombra proyectada herede el tinte de la pieza.
+    """
+    # rgba viene como [r,g,b,a]; forzamos alpha=1 en Base Color porque la
+    # translucidez la maneja Transmission, NO el alpha (evita lavado gris).
+    base_color = (float(rgba[0]), float(rgba[1]), float(rgba[2]), 1.0)
+    transparent_color = base_color  # mismo tinte para sombras coloreadas
+
+    nt = mat.node_tree
+    nt.nodes.clear()
+    nodes = nt.nodes
+    links = nt.links
+
+    n_principled = nodes.new(type="ShaderNodeBsdfPrincipled")
+    n_principled.location = (-300, 200)
+    n_principled.inputs["Base Color"].default_value = base_color
+    _set_principled_input(n_principled, ("Roughness",), 0.07)
+    _set_principled_input(
+        n_principled, ("Transmission Weight", "Transmission"), 1.0
+    )
+    _set_principled_input(n_principled, ("IOR",), 1.58)
+    # Metallic 0, Specular default. Aseguramos Alpha=1 (no usamos alpha-blend).
+    _set_principled_input(n_principled, ("Metallic",), 0.0)
+    _set_principled_input(n_principled, ("Alpha",), 1.0)
+
+    n_transparent = nodes.new(type="ShaderNodeBsdfTransparent")
+    n_transparent.location = (-300, -100)
+    n_transparent.inputs["Color"].default_value = transparent_color
+
+    n_lightpath = nodes.new(type="ShaderNodeLightPath")
+    n_lightpath.location = (-300, 500)
+
+    n_mix = nodes.new(type="ShaderNodeMixShader")
+    n_mix.location = (50, 200)
+
+    n_output = nodes.new(type="ShaderNodeOutputMaterial")
+    n_output.location = (300, 200)
+
+    # Conexiones según especificación.
+    links.new(n_principled.outputs["BSDF"], n_mix.inputs[1])
+    links.new(n_transparent.outputs["BSDF"], n_mix.inputs[2])
+    links.new(n_lightpath.outputs["Is Shadow Ray"], n_mix.inputs["Fac"])
+    links.new(n_mix.outputs["Shader"], n_output.inputs["Surface"])
+
+    # Propiedades de superficie del material.
+    try:
+        mat.blend_method = "HASHED"
+    except Exception:
+        pass
+    try:
+        mat.shadow_method = "HASHED"
+    except Exception:
+        pass
+    # Activar refracción en pantalla (EEVEE clásico). En EEVEE Next la
+    # propiedad puede no existir; el flag global de raytracing cubre el caso.
+    try:
+        if hasattr(mat, "use_screen_refraction"):
+            mat.use_screen_refraction = True
+    except Exception:
+        pass
+
+    # Marcador para detección O(1) en escenas multi-material.
+    try:
+        mat["is_lego_translucent"] = True
+    except Exception:
+        pass
+
+    return mat
+
+
+def _material_is_translucent(mat) -> bool:
+    """True si el material fue construido por _build_translucent_lego_material."""
+    if mat is None:
+        return False
+    try:
+        return bool(mat.get("is_lego_translucent", False))
+    except Exception:
+        return False
+
+
 def load_color_catalog():
     global COLOR_CATALOG
     if COLOR_CATALOG is not None:
@@ -299,12 +457,17 @@ def load_color_catalog():
     COLOR_CATALOG = {}
     project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     catalog_path = os.path.join(project_root, "database", "color_catalog.json")
+    if not os.path.exists(catalog_path):
+        # Fallback to parent of project_root (LegoVision root)
+        catalog_path = os.path.join(os.path.dirname(project_root), "database", "color_catalog.json")
     if os.path.exists(catalog_path):
         try:
             with open(catalog_path, "r", encoding="utf-8") as f:
                 COLOR_CATALOG = json.load(f)
         except Exception as e:
             print(f"[WARN] Error al cargar catálogo de colores: {e}")
+    else:
+        print(f"[WARN] color_catalog.json not found at {catalog_path}")
     return COLOR_CATALOG
 
 def create_abs_plastic_material(color_value):
@@ -345,14 +508,28 @@ def create_abs_plastic_material(color_value):
     nodes = mat.node_tree.nodes
     links = mat.node_tree.links
     nodes.clear()
-    
-    node_principled = nodes.new(type='ShaderNodeBsdfPrincipled')
-    node_principled.location = (0, 0)
-    
+
     # Convertir Hex a RGB
     hex_val = color_hex.lstrip('#')
     rgba = [int(hex_val[i:i+2], 16)/255.0 for i in (0, 2, 4)] + [1.0]
-    
+
+    # ── Detección temprana de plástico translúcido ──────────────────────
+    # Si el color es translúcido (Trans Red / Trans Brown / Trans Clear …)
+    # delegamos al builder especializado con topología Principled +
+    # Transparent BSDF + Light Path + Mix Shader. Esto da:
+    #   · refracción real con IOR=1.58 (policarbonato)
+    #   · roughness bajo (0.07) y transmission=1
+    #   · sombras coloreadas (no grises sólidas)
+    #   · blend/shadow=HASHED y use_screen_refraction=True
+    if color_def is not None:
+        _mat_type_early = color_def.get("material_type", "solid")
+        _alpha_early = color_def.get("alpha", 1.0)
+        if _mat_type_early == "transparent" or _alpha_early < 1.0:
+            return _build_translucent_lego_material(mat, rgba)
+
+    node_principled = nodes.new(type='ShaderNodeBsdfPrincipled')
+    node_principled.location = (0, 0)
+
     # Valores de material por defecto (Solid)
     metallic = 0.0
     roughness = 0.15
@@ -363,21 +540,8 @@ def create_abs_plastic_material(color_value):
     if color_def:
         mat_type = color_def.get("material_type", "solid")
         alpha = color_def.get("alpha", 1.0)
-        
-        if mat_type == "transparent" or alpha < 1.0:
-            # Plástico transparente
-            metallic = 0.0
-            roughness = 0.02
-            transmission = 1.0
-            subsurface = 0.0
-            rgba[3] = alpha # Set transparent alpha
-            # Activar transparencia en el viewport (seguro para cualquier versión de Blender)
-            try:
-                mat.blend_method = 'BLEND'
-                mat.shadow_method = 'HASHED'
-            except Exception:
-                pass
-        elif mat_type == "metallic":
+
+        if mat_type == "metallic":
             # Metalizado / Cromo
             metallic = 1.0
             roughness = 0.2
@@ -623,6 +787,25 @@ def render_piece_pipeline(part_ref, color_hex, output_path,
         except Exception as e:
             print(f"   ⚠️ No se pudo aplicar material a {mesh_obj.name}: {e}")
         print(f"   [mat] {mesh_obj.name} ({sub_ref}) ← BL {bl_for_sub}")
+
+    # ── Activar SSR/Refraction (o Raytracing en 4.2+) si HAY translúcidos ──
+    # Sólo afecta cuando el motor activo es EEVEE; en Cycles es no-op. Esto
+    # permite que scripts EEVEE consumidores (generate_set_random_position,
+    # generate_300_random_set, generate_test_set, etc.) levanten la
+    # configuración global ÚNICAMENTE para piezas translúcidas, sin alterar
+    # el resto del entorno físico, luces ni cámara.
+    try:
+        has_translucent = any(
+            _material_is_translucent(m)
+            for obj in imported_meshes
+            for m in (obj.data.materials if obj and obj.data else [])
+            if m is not None
+        )
+        if has_translucent:
+            configure_eevee_for_translucent(bpy.context.scene)
+            print("   [eevee] SSR + Refraction activados para pieza translúcida.")
+    except Exception as _e:
+        print(f"   [eevee] no se pudo activar refracción: {_e}")
 
     # ── Unir todos los meshes en un único objeto multi-material ──
     bpy.ops.object.select_all(action='DESELECT')

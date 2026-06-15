@@ -58,6 +58,17 @@ def _get_world_bbox(obj):
 
 
 def _normalize_piece(obj):
+    """Normaliza una pieza importada de LDraw centrandola en el origen y
+    escalandola al sistema de Blender Units del proyecto.
+
+    Convencion: en la escala nueva (1 BU = 10 cm = 100 mm), 1 LDU
+    (LDraw Unit) = 0.4 mm = 0.004 BU. El factor 0.004 transforma
+    los vertices LDraw directos a BU del proyecto.
+
+    Para la escala vieja (1 BU = 1 cm = 10 mm) se usaba factor 0.04
+    (1 LDU = 0.04 BU). Si en algun momento se restaura esa escala,
+    cambiar `LDU_TO_BU` a 0.04.
+    """
     if not obj.data or not hasattr(obj.data, 'vertices'):
         return 1.0
     verts = [v.co for v in obj.data.vertices]
@@ -67,7 +78,9 @@ def _normalize_piece(obj):
     mx = max(max(xs)-min(xs), max(ys)-min(ys), max(zs)-min(zs))
     if mx < 1e-6:
         return 1.0
-    factor = 0.04 if mx > 5.0 else 1.0
+    # 0.004 = 1 LDU (0.4 mm) -> 1 BU (10 cm) cuando 1 BU = 10 cm.
+    LDU_TO_BU = 0.004
+    factor = LDU_TO_BU if mx > 5.0 else 1.0
     cx = (max(xs)+min(xs))/2.0; cy = (max(ys)+min(ys))/2.0; cz = (max(zs)+min(zs))/2.0
     for v in obj.data.vertices:
         v.co.x = (v.co.x - cx) * factor
@@ -134,63 +147,148 @@ def setup_camera(cam_name, location):
     return cam
 
 
-def setup_lab_lightbox():
-    """Setup laboratory lightbox (canonical, no randomization)."""
+def _set_light_blackbody(light_obj, temp_k=5500.0, energy_w=20.0):
+    """Configura una luz para que emita luz blanca neutra mediante un nodo
+    Blackbody @ ``temp_k`` Kelvin (5500K = luz de día neutra industrial).
+
+    Habilita ``use_nodes=True`` y reemplaza el árbol por:
+
+        Blackbody → Emission(strength=energy_w) → Light Output
+
+    Esto evita que el color por defecto del shader interno tiña la imagen
+    con tonos cálidos (4100K) o azulados, garantizando neutralidad cromática
+    para los plásticos ABS (negros, blancos, transparentes).
+    """
+    light = light_obj.data
+    light.use_nodes = True
+    nt = light.node_tree
+    nt.nodes.clear()
+
+    n_blackbody = nt.nodes.new(type='ShaderNodeBlackbody')
+    n_blackbody.location = (-300, 0)
+    n_blackbody.inputs['Temperature'].default_value = float(temp_k)
+
+    n_emission = nt.nodes.new(type='ShaderNodeEmission')
+    n_emission.location = (-50, 0)
+    n_emission.inputs['Strength'].default_value = float(energy_w)
+
+    n_output = nt.nodes.new(type='ShaderNodeOutputLight')
+    n_output.location = (200, 0)
+
+    nt.links.new(n_blackbody.outputs['Color'], n_emission.inputs['Color'])
+    nt.links.new(n_emission.outputs['Emission'], n_output.inputs['Surface'])
+
+    # Mantener también la energía a nivel de objeto (Blender la usa como
+    # fallback / para previews). El strength del nodo Emission domina el
+    # render final cuando use_nodes=True.
+    light.energy = float(energy_w)
+
+
+def setup_machine_vision_lighting():
+    """Setup industrial Domo Industrial (canonical desde 2026-09-06b).
+
+    Reemplaza al setup `Ring + Bars` (61 W, world 0.05) que producia
+    renders demasiado oscuros. El nuevo "Domo Industrial" sigue las
+    especificaciones de `setup_lighting_only.py` (3 luces blancas
+    estandar, sin polarizador simulado, world gris neutro 0.4) pero
+    escaladas a Blender Units (1 BU = 0.1 m = 10 cm):
+
+      1. Cenital  AREA SQUARE 4.0 BU (= 0.4 m) @ (0,0,2.5) BU
+                  apuntando -Z, energy=15 W.
+      2. Fill +Y  AREA RECT 3.0 x 1.0 BU @ (0,+1.5,0.5) BU
+                  apuntando al origen, energy=5 W.
+      3. Fill -Y  AREA RECT 3.0 x 1.0 BU @ (0,-1.5,0.5) BU
+                  apuntando al origen, energy=5 W.
+
+    World: gris neutro (0.5,0.5,0.5) strength=0.4 para fill ambiental
+    suave que evita zonas en sombra colapsando a negro (problema
+    observado en 3023 Trans-Brown / Red con setup anterior).
+
+    Color management: scene.view_settings.view_transform='Standard',
+    look='Medium Contrast'.
+
+    Energia total: 25 W. A pesar de ser menor que el setup anterior
+    (61 W), produce renders ~3-4x mas brillantes porque:
+      - Areas mucho mayores (luz difusa, no puntual)
+      - World strength 8x mayor (0.4 vs 0.05) -> fill ambiental fuerte
+      - specular_factor=1.0 (no polarizador) -> ABS reflecta normal
+      - View transform Standard (no Filmic) -> sin rolloff de altas
+    """
+    # Limpiar luces previas (incluidas las del setup anterior).
     keep = {"Conveyor_Belt_Plane", "Camera_Target", "Side_Rail_L", "Side_Rail_R",
             "Cam_Cenital", "Cam_Lateral", "Lab_Floor"}
     for o in list(bpy.context.scene.objects):
         if o.type == 'LIGHT' and o.name not in keep:
             bpy.data.objects.remove(o, do_unlink=True)
+    # Eliminar data-blocks de luz huerfanos.
+    for ld in [l for l in bpy.data.lights if l.users == 0]:
+        bpy.data.lights.remove(ld)
 
+    # World gris neutro con strength alto (fill ambiental).
     scene = bpy.context.scene
     if scene.world:
         scene.world.use_nodes = True
         bg = scene.world.node_tree.nodes.get("Background")
         if bg:
-            bg.inputs["Color"].default_value = (1.0, 1.0, 1.0, 1.0)
-            bg.inputs["Strength"].default_value = 0.3
+            bg.inputs["Color"].default_value = (0.5, 0.5, 0.5, 1.0)
+            bg.inputs["Strength"].default_value = 0.4
 
-    neutral_color = (1.0, 1.0, 1.0)
+    # Color management para vision artificial: View=Standard, Look=Medium Contrast.
+    scene.view_settings.view_transform = 'Standard'
+    try:
+        scene.view_settings.look = 'Medium Contrast'
+    except TypeError:
+        # Algunos builds usan otro naming; fallback.
+        scene.view_settings.look = 'None'
 
-    bpy.ops.object.light_add(type='AREA', location=(0.0, 0.0, 12.0))
-    main = bpy.context.active_object
-    main.name = "Lab_Main_Dome"
-    main.data.size = 35.0
-    main.data.size_y = 35.0
-    main.data.shape = 'RECTANGLE'
-    main.data.color = neutral_color
-    main.data.energy = 2000.0
+    # ── 1. KEY LIGHT CENITAL (AREA / SQUARE) ────────────────────────────
+    bpy.ops.object.light_add(type='AREA', location=(0.0, 0.0, 2.5))
+    key = bpy.context.active_object
+    key.name = "Key_Cenital"
+    key.data.shape = 'SQUARE'
+    key.data.size = 4.0  # 0.4 m -> 4.0 BU
+    key.data.energy = 15.0
+    key.data.color = (1.0, 1.0, 1.0)
+    if hasattr(key.data, 'specular_factor'):
+        key.data.specular_factor = 1.0
+    # Apunta directamente hacia abajo (-Z global).
+    key.rotation_mode = 'XYZ'
+    key.rotation_euler = (0.0, 0.0, 0.0)
 
+    # ── 2. FILL LATERALES (AREA / RECTANGLE x 2) ────────────────────────
     target = bpy.data.objects.get("Camera_Target")
-    wall_panels = [
-        ("Lab_Wall_N", (0.0, +12.0, 6.0)),
-        ("Lab_Wall_S", (0.0, -12.0, 6.0)),
-        ("Lab_Wall_E", (+12.0, 0.0, 6.0)),
-        ("Lab_Wall_W", (-12.0, 0.0, 6.0)),
+    if not target:
+        bpy.ops.object.empty_add(type='PLAIN_AXES', location=(0.0, 0.0, 0.0))
+        target = bpy.context.active_object
+        target.name = "Camera_Target"
+
+    fill_specs = [
+        ("Fill_Lateral_+Y", (0.0,  1.5, 0.5)),
+        ("Fill_Lateral_-Y", (0.0, -1.5, 0.5)),
     ]
-    for wname, wloc in wall_panels:
-        bpy.ops.object.light_add(type='AREA', location=wloc)
-        wp = bpy.context.active_object
-        wp.name = wname
-        wp.data.size = 20.0
-        wp.data.size_y = 12.0
-        wp.data.shape = 'RECTANGLE'
-        wp.data.color = neutral_color
-        wp.data.energy = 600.0
-        track = wp.constraints.new(type='TRACK_TO')
+    for fname, floc in fill_specs:
+        bpy.ops.object.light_add(type='AREA', location=floc)
+        fill = bpy.context.active_object
+        fill.name = fname
+        fill.data.shape = 'RECTANGLE'
+        fill.data.size = 3.0   # 0.3 m -> 3.0 BU (largo)
+        fill.data.size_y = 1.0 # 0.1 m -> 1.0 BU (ancho)
+        fill.data.energy = 5.0
+        fill.data.color = (1.0, 1.0, 1.0)
+        if hasattr(fill.data, 'specular_factor'):
+            fill.data.specular_factor = 1.0
+        # Apuntar al centro de la cinta (Camera_Target).
+        track = fill.constraints.new(type='TRACK_TO')
         track.target = target
         track.track_axis = 'TRACK_NEGATIVE_Z'
         track.up_axis = 'UP_Y'
 
-    bpy.ops.object.light_add(type='AREA', location=(0.0, 0.0, -0.5))
-    gf = bpy.context.active_object
-    gf.name = "Lab_Ground_Fill"
-    gf.data.size = 30.0
-    gf.data.size_y = 30.0
-    gf.data.shape = 'RECTANGLE'
-    gf.data.color = neutral_color
-    gf.data.energy = 200.0
-    gf.rotation_euler = (3.14159, 0.0, 0.0)
+
+# Alias retrocompatible: scripts existentes (generate_300_random_set,
+# generate_yolo_training_dataset, generate_eevee_dinov2_refs) importan
+# `setup_lab_lightbox` desde este módulo. Mantener el nombre evita romper
+# imports y permite cambiar el comportamiento de iluminación globalmente.
+setup_lab_lightbox = setup_machine_vision_lighting
 
 
 def create_floor():
@@ -270,8 +368,16 @@ def create_belt_collider():
 
 
 def cleanup_piece_objects():
+    # Setup canónico Machine Vision (MV_Ring_Cenital + MV_Bar_Lateral_L/R).
+    # Se mantienen los nombres antiguos (Lab_*) en `keep` por seguridad: si
+    # algún script externo aún crea esas luces, no se eliminarán por error.
     keep = {"Conveyor_Belt_Plane", "Camera_Target", "Side_Rail_L", "Side_Rail_R",
             "Cam_Cenital", "Cam_Lateral", "Lab_Floor",
+            # Setup Domo Industrial (actual, 2026-09-06b)
+            "Key_Cenital", "Fill_Lateral_+Y", "Fill_Lateral_-Y",
+            # Setup MV Ring+Bars (legacy intermedio)
+            "MV_Ring_Cenital", "MV_Bar_Lateral_L", "MV_Bar_Lateral_R",
+            # Setup legacy lab_lightbox (compatibilidad)
             "Lab_Main_Dome", "Lab_Wall_N", "Lab_Wall_S", "Lab_Wall_E", "Lab_Wall_W", "Lab_Ground_Fill"}
     bpy.ops.object.select_all(action='DESELECT')
     for o in list(bpy.context.scene.objects):

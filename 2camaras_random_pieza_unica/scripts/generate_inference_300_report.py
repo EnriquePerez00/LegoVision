@@ -1,4 +1,17 @@
 # -*- coding: utf-8 -*-
+
+# ============================================================
+# DEPRECADO: Este script ha sido reemplazado por
+#            generate_report_inference.py
+#
+# Uso del nuevo script unificado:
+#   python generate_report_inference.py \
+#       --eval       <eval_report.json> \
+#       --images_dir <directorio_imagenes> \
+#       --out        <directorio_salida>/
+#
+# Este fichero se mantiene por compatibilidad histórica.
+# ============================================================
 """2camaras_random_pieza_unica/scripts/generate_inference_300_report.py
 Genera un report ad-hoc (CSV + HTML resumen) a partir del eval_report.json
 producido por `run_evaluation.py` corriendo sobre el dataset de 300

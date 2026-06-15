@@ -265,12 +265,10 @@ def save_piece_embedding(
             cur.execute("""
                 INSERT INTO piece_embeddings (part_ref, stable_face, rotation_angle, embedding, color_code, color_hex, pose_index, embedding_projected)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                ON CONFLICT (part_ref, stable_face, rotation_angle, color_hex)
+                ON CONFLICT (part_ref, stable_face, rotation_angle, color_hex, pose_index)
                 DO UPDATE SET
                     embedding = EXCLUDED.embedding,
                     color_code = EXCLUDED.color_code,
-                    color_hex = EXCLUDED.color_hex,
-                    pose_index = EXCLUDED.pose_index,
                     embedding_projected = EXCLUDED.embedding_projected,
                     created_at = NOW()
             """, (part_ref, stable_face, rotation_angle, embedding, color_code, color_hex, p_idx, embedding_projected))
@@ -301,12 +299,10 @@ def save_piece_embeddings_batch(embeddings: list[dict]):
             psycopg2.extras.execute_values(cur, """
                 INSERT INTO piece_embeddings (part_ref, stable_face, rotation_angle, embedding, color_code, color_hex, pose_index, embedding_projected)
                 VALUES %s
-                ON CONFLICT (part_ref, stable_face, rotation_angle, color_hex)
+                ON CONFLICT (part_ref, stable_face, rotation_angle, color_hex, pose_index)
                 DO UPDATE SET
                     embedding = EXCLUDED.embedding,
                     color_code = EXCLUDED.color_code,
-                    color_hex = EXCLUDED.color_hex,
-                    pose_index = EXCLUDED.pose_index,
                     embedding_projected = EXCLUDED.embedding_projected,
                     created_at = NOW()
             """, values)
