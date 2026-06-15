@@ -50,7 +50,7 @@ from logger import get_logger, log_execution_header, log_execution_footer
 log = get_logger("blender")
 
 # ── Config ──
-SELECTED_PARTS = cfg.pieces.selected_parts
+# SELECTED_PARTS ya no se usa para filtrar: toda la BD via REAL_SETS.items()
 # OVERRIDE de escala nueva (1 BU = 10 cm). El config sigue cargando los
 # valores legacy (BELT_WIDTH_BU=20 = 200 cm) pero aqui los reescalamos
 # a 2.0 BU = 20 cm de ancho, coherente con generate_inferencia_test_v2.
@@ -282,17 +282,17 @@ def setup_cameras():
     if cam_c_name in bpy.data.objects:
         cam_c = bpy.data.objects[cam_c_name]
     else:
-        bpy.ops.object.camera_add(location=(0, 0, 15.0))
+        bpy.ops.object.camera_add(location=(0, 0, 30.0))
         cam_c = bpy.context.active_object
         cam_c.name = cam_c_name
-    cam_c.location = (0.0, 0.0, 15.0)
+    cam_c.location = (0.0, 0.0, 30.0)
     cam_c.constraints.clear()
     track_c = cam_c.constraints.new(type='TRACK_TO')
     track_c.target = target
     track_c.track_axis = 'TRACK_NEGATIVE_Z'
     track_c.up_axis = 'UP_Y'
     cam_c.data.type = 'PERSP'
-    cam_c.data.lens = 27.0
+    cam_c.data.lens = 55.0
     cam_c.data.clip_start = 0.01
     cam_c.data.clip_end = 100.0
 
@@ -372,7 +372,10 @@ def main():
         args_raw = sys.argv[sys.argv.index("--") + 1:]
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument("--output_dir", type=str, required=True)
+    # Default: renders/dinov2_refs (separación de dominios)
+    default_output_dir = os.path.join(project_root, "renders", "dinov2_refs")
+    parser.add_argument("--output_dir", type=str, default=default_output_dir,
+                        help="Directorio de salida para refs DINOv2 (default: renders/dinov2_refs)")
     parser.add_argument("--rotations", type=int, default=12, help="Rotaciones por defecto si no se usa heurística.")
     parser.add_argument("--render_res", type=int, default=384,
                         help="Resolución cuadrada (px). Para refs DINOv2 se "
@@ -384,7 +387,7 @@ def main():
     log_execution_header(log, "generate_eevee_dinov2_refs.py",
                          output_dir=out_dir, rotations=pa.rotations,
                          render_res=render_res,
-                         selected_parts=SELECTED_PARTS)
+                         scope="all_sets_in_BD")
 
     for c in ["cenital", "lateral"]:
         os.makedirs(os.path.join(out_dir, c), exist_ok=True)
@@ -409,27 +412,34 @@ def main():
     from database.set_catalog import REAL_SETS
     PART_COLORS_HEX = cfg.pieces.reference_colors_hex
 
-    # Iterar SOLO las piezas del set 75078-1 (38 refs) que tengan poses
-    # estables en el cache. El cache trae 68 piezas (incluye otros sets);
-    # filtramos para acotar tiempo de render a ~22 min vs ~102 min.
+    # Iterar TODAS las refs de la BD que tengan poses estables en el cache.
     cache_path = os.path.join(project_root, "data", "stable_poses_cache.json")
-    set_refs = sorted({p["ref"] for p in REAL_SETS["75078-1"]["parts"]})
+    all_bd_refs = set()
+    for sid, sdata in REAL_SETS.items():
+        for p in sdata.get("parts", []):
+            ref = p.get("ref", "")
+            if not ref or "stk" in ref.lower() or ref.lower().startswith("sw") or ref.lower().startswith("fig"):
+                continue
+            all_bd_refs.add(ref)
     try:
         with open(cache_path, "r", encoding="utf-8") as f:
             cache_keys = set(json.load(f).keys())
-        ALL_PARTS = sorted([r for r in set_refs if r in cache_keys])
+        ALL_PARTS = sorted([r for r in all_bd_refs if r in cache_keys])
     except Exception:
-        ALL_PARTS = list(SELECTED_PARTS)
-    log.info(f"Procesando {len(ALL_PARTS)} piezas del set 75078-1 con poses en cache.")
+        ALL_PARTS = sorted(all_bd_refs)
+    log.info(f"Procesando {len(ALL_PARTS)} piezas de toda la BD con poses en cache.")
 
     for part_ref in ALL_PARTS:
         log.info(f"=== Generando referencias para pieza: {part_ref} ===")
 
-        # Get real colors for this part in the set
+        # Obtener colores reales para esta pieza de TODOS los sets de la BD
         allowed_colors = []
-        for p in REAL_SETS["75078-1"]["parts"]:
-            if p["ref"] == part_ref:
-                allowed_colors.append(p["color_hex"].replace("#", "").upper())
+        for sid, sdata in REAL_SETS.items():
+            for p in sdata.get("parts", []):
+                if p.get("ref") == part_ref and p.get("color_hex"):
+                    ch = p["color_hex"].replace("#", "").upper()
+                    if ch not in allowed_colors:
+                        allowed_colors.append(ch)
         if not allowed_colors:
             allowed_colors = [c.replace("#", "").upper() for c in PART_COLORS_HEX]
 

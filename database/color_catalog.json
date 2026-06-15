@@ -1390,5 +1390,45 @@
         "alpha": 1.0,
         "category": "Solid Colors",
         "material_type": "solid"
+    },
+    "148": {
+        "name": "Pearl Dark Gray",
+        "ldraw_code": "10148",
+        "hex": "#575857",
+        "alpha": 1.0,
+        "category": "Pearl Colors",
+        "material_type": "solid"
+    },
+    "272": {
+        "name": "Dark Blue",
+        "ldraw_code": "10272",
+        "hex": "#0D2654",
+        "alpha": 1.0,
+        "category": "Solid Colors",
+        "material_type": "solid"
+    },
+    "288": {
+        "name": "Dark Green",
+        "ldraw_code": "10288",
+        "hex": "#184632",
+        "alpha": 1.0,
+        "category": "Solid Colors",
+        "material_type": "solid"
+    },
+    "297": {
+        "name": "Flat Silver",
+        "ldraw_code": "10297",
+        "hex": "#899395",
+        "alpha": 1.0,
+        "category": "Pearl Colors",
+        "material_type": "solid"
+    },
+    "320": {
+        "name": "Dark Red",
+        "ldraw_code": "10320",
+        "hex": "#720012",
+        "alpha": 1.0,
+        "category": "Solid Colors",
+        "material_type": "solid"
     }
 }

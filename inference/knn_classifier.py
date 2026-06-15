@@ -194,6 +194,12 @@ class LegoKNNClassifier:
 
     def load_projection_head(self):
         """Loads the trained MLP Projection Head if it exists."""
+        if os.environ.get("DISABLE_MLP") == "1":
+            print("[KNNClassifier INFO] MLP Projection Head desactivado por variable de entorno. Usando embeddings base (384-d).")
+            self.projection_head = None
+            self.is_projected_mode = False
+            return
+
         model_path = os.path.join(project_root, "models", "dino_multimodal_head.pt")
         if os.path.exists(model_path):
             print(f"[KNNClassifier] Cargando MLP Projection Head multimodal desde {model_path}...")

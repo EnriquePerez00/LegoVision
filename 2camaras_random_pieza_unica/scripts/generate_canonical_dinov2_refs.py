@@ -85,7 +85,7 @@ except Exception:
     log = _DummyLog()
 
 
-SET_ID = "75078-1"
+# Sin hardcoding a ningun set: refs y colores vienen de toda la BD (REAL_SETS)
 DEFAULT_RENDER_RES = 384
 DEFAULT_ROTATIONS = 12
 CACHE_PATH = os.path.join(project_root, "data", "stable_poses_cache.json")
@@ -102,15 +102,20 @@ def _load_stable_cache():
 
 
 def _select_refs(args_refs, cache):
-    set_refs = []
+    """Devuelve refs a procesar de TODA la BD, filtradas por cache de poses."""
+    # Todas las refs unicas de la BD (sin stickers/minifigs)
+    all_bd_refs = []
     seen = set()
-    for p in REAL_SETS[SET_ID]["parts"]:
-        ref = p["ref"]
-        if ref not in seen:
-            seen.add(ref)
-            set_refs.append(ref)
+    for sid, sdata in REAL_SETS.items():
+        for p in sdata.get("parts", []):
+            ref = p.get("ref", "")
+            if not ref or "stk" in ref.lower() or ref.lower().startswith("sw") or ref.lower().startswith("fig"):
+                continue
+            if ref not in seen:
+                seen.add(ref)
+                all_bd_refs.append(ref)
     if not args_refs or args_refs == ["all"]:
-        return [r for r in set_refs if r in cache and cache[r]]
+        return [r for r in all_bd_refs if r in cache and cache[r]]
     chosen = [r for r in args_refs if r in cache and cache[r]]
     missing = [r for r in args_refs if r not in cache or not cache[r]]
     if missing:
@@ -119,12 +124,14 @@ def _select_refs(args_refs, cache):
 
 
 def _allowed_colors_for_ref(ref):
+    """Colores reales de la pieza en TODOS los sets de la BD."""
     out = []
-    for p in REAL_SETS[SET_ID]["parts"]:
-        if p["ref"] == ref:
-            ch = (p.get("color_hex") or "").lstrip("#").upper()
-            if ch and ch not in out:
-                out.append(ch)
+    for sid, sdata in REAL_SETS.items():
+        for p in sdata.get("parts", []):
+            if p.get("ref") == ref:
+                ch = (p.get("color_hex") or "").lstrip("#").upper()
+                if ch and ch not in out:
+                    out.append(ch)
     if not out:
         out = ["A0A5A9"]
     return out

@@ -79,14 +79,10 @@ def rgb_to_lab(rgb_val):
     return np.array([l_val, a_val, b_val])
 
 
-# 7 colores reales del inventario del set 75078-1 (BrickLink codes).
-# El comparador CIELAB elige el mas cercano al RGB observado.
-#
-# RGB recalibrados sobre la nueva escena (cinta azul petroleo + V4 lighting +
-# pantalla aluminio + suelo oficina + cam cenital z=15cm). Los valores se
-# midieron sobre la pieza 3023 plate 1x2 con las 7 muestras renderizadas
-# (ver scripts/generate_inferencia_test_v2.py). Ver historico legacy en
-# SET_CATALOG_COLORS_LEGACY (cinta azul vieja + setup MV ring+bars).
+# Paleta de colores para comparación CIELAB.
+# Se intenta cargar dinámicamente desde la BD (piece_embeddings),
+# incluyendo todos los colores con embeddings indexados.
+# Fallback: cfg.pieces.set_colors (lista estática del config.yaml).
 CCM_CEN = np.array(cfg.inference.color_calibration.ccm_cenital)
 CCM_LAT = np.array(cfg.inference.color_calibration.ccm_lateral)
 
@@ -96,30 +92,90 @@ def hex_to_rgb(hex_str):
         return np.array([int(hex_str[i:i+2], 16) for i in (0, 2, 4)], dtype=float)
     return np.array([128.0, 128.0, 128.0])
 
+def _build_catalog_colors_from_db():
+    """Construye la paleta de colores desde piece_embeddings (BD dinámica).
+    Retorna lista de dicts con keys: color_code, color_name, color_hex, rgb (aplicando CCM).
+    Si falla, retorna lista vacía (se usa fallback cfg.pieces.set_colors)."""
+    try:
+        sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__))))
+        from _db_helpers import get_unique_colors_from_db
+        colors_db = get_unique_colors_from_db()
+        if not colors_db:
+            return [], []
+        catalog_cen, catalog_lat = [], []
+        seen = set()
+        for c in colors_db:
+            code_str = str(c["code"])
+            hex_color = c["hex"] if c["hex"].startswith("#") else "#" + c["hex"]
+            name = c["name"]
+            key = (code_str, hex_color)
+            if key in seen:
+                continue
+            seen.add(key)
+            rgb_nominal = hex_to_rgb(hex_color)
+            rgb_cen = np.clip(CCM_CEN @ rgb_nominal, 0.0, 255.0).tolist()
+            rgb_lat = np.clip(CCM_LAT @ rgb_nominal, 0.0, 255.0).tolist()
+            entry_cen = {"color_code": code_str, "color_name": name, "color_hex": hex_color, "rgb": rgb_cen}
+            entry_lat = {"color_code": code_str, "color_name": name, "color_hex": hex_color, "rgb": rgb_lat}
+            catalog_cen.append(entry_cen)
+            catalog_lat.append(entry_lat)
+        log.info(f"[ColorCatalog] {len(catalog_cen)} colores cargados desde BD dinámica")
+        return catalog_cen, catalog_lat
+    except Exception as e:
+        log.warning(f"[ColorCatalog] Error cargando desde BD: {e}")
+        return [], []
+
 SET_CATALOG_COLORS = []
 SET_CATALOG_COLORS_LATERAL = []
 
-for sc in cfg.pieces.set_colors:
-    code_str = str(sc["code"])
-    hex_color = sc["hex"]
-    name = sc["name"]
-    rgb_nominal = hex_to_rgb(hex_color)
-    
-    rgb_cen = np.clip(CCM_CEN @ rgb_nominal, 0.0, 255.0).tolist()
-    rgb_lat = np.clip(CCM_LAT @ rgb_nominal, 0.0, 255.0).tolist()
-    
-    SET_CATALOG_COLORS.append({
-        "color_code": code_str,
-        "color_name": name,
-        "color_hex": hex_color,
-        "rgb": rgb_cen
-    })
-    SET_CATALOG_COLORS_LATERAL.append({
-        "color_code": code_str,
-        "color_name": name,
-        "color_hex": hex_color,
-        "rgb": rgb_lat
-    })
+# Cargar paleta calibrada Z=300mm si está disponible
+palette_path = os.path.join(project_root, "data", "color_calibration_palette.json")
+if os.path.exists(palette_path):
+    try:
+        with open(palette_path, "r", encoding="utf-8") as f:
+            palette_items = json.load(f)
+        for item in palette_items:
+            code_str = str(item["color_code"])
+            name = item["color_name"]
+            hex_color = item["color_hex"]
+            SET_CATALOG_COLORS.append({
+                "color_code": code_str, "color_name": name,
+                "color_hex": hex_color, "rgb": item["rgb_cenital"]
+            })
+            SET_CATALOG_COLORS_LATERAL.append({
+                "color_code": code_str, "color_name": name,
+                "color_hex": hex_color, "rgb": item["rgb_lateral"]
+            })
+        log.info(f"[ColorCatalog] {len(SET_CATALOG_COLORS)} colores cargados desde la paleta calibrada: {palette_path}")
+    except Exception as e:
+        log.error(f"[ColorCatalog] Error cargando paleta calibrada: {e}")
+        SET_CATALOG_COLORS = []
+        SET_CATALOG_COLORS_LATERAL = []
+
+if not SET_CATALOG_COLORS:
+    # Intentar cargar desde BD primero
+    _db_cen, _db_lat = _build_catalog_colors_from_db()
+    if _db_cen:
+        SET_CATALOG_COLORS = _db_cen
+        SET_CATALOG_COLORS_LATERAL = _db_lat
+    else:
+        # Fallback: cfg.pieces.set_colors (config estático)
+        log.info("[ColorCatalog] Fallback a cfg.pieces.set_colors estático")
+        for sc in cfg.pieces.set_colors:
+            code_str = str(sc["code"])
+            hex_color = sc["hex"]
+            name = sc["name"]
+            rgb_nominal = hex_to_rgb(hex_color)
+            rgb_cen = np.clip(CCM_CEN @ rgb_nominal, 0.0, 255.0).tolist()
+            rgb_lat = np.clip(CCM_LAT @ rgb_nominal, 0.0, 255.0).tolist()
+            SET_CATALOG_COLORS.append({
+                "color_code": code_str, "color_name": name,
+                "color_hex": hex_color, "rgb": rgb_cen
+            })
+            SET_CATALOG_COLORS_LATERAL.append({
+                "color_code": code_str, "color_name": name,
+                "color_hex": hex_color, "rgb": rgb_lat
+            })
 
 
 def find_closest_catalog_color(avg_rgb, camera="cenital"):
@@ -165,7 +221,7 @@ def estimate_color_predominant(crop_img, use_segmentation=False):
         img_rgb = np.array(crop_img.convert("RGB"))
 
         if use_segmentation:
-            mask = segment_crop(crop_img)
+            mask = segment_crop_sam(img_cen_full, [cx1, cy1, cx2, cy2])
             mask_fg = mask > 0
         else:
             # Usar todos los píxeles pero descartar fondo azul petróleo
@@ -299,9 +355,11 @@ def segment_crop_sam(img_full: Image.Image, bbox_norm: list) -> np.ndarray:
         y2 = min(h, int(bbox_norm[3] * h))
         crop_img = img_full.crop((x1, y1, x2, y2))
         img_np = np.array(crop_img.convert("RGB"))
-        bg_color = np.array([37.0, 65.0, 84.0], dtype=np.float32)
+        # Belt color as rendered under Dome Light + Cross-Polarization
+        # (medido en esquinas de los renders test20: ~(128,165,185)).
+        bg_color = np.array([128.0, 165.0, 185.0], dtype=np.float32)
         dist = np.linalg.norm(img_np.astype(np.float32) - bg_color, axis=2)
-        mask = (dist > 18.0).astype(np.uint8) * 255
+        mask = (dist > 30.0).astype(np.uint8) * 255
         kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
         mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel, iterations=2)
         mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel, iterations=1)
@@ -312,11 +370,12 @@ def segment_crop_sam(img_full: Image.Image, bbox_norm: list) -> np.ndarray:
         return np.ones((h_crop, w_crop), dtype=np.uint8) * 255
 
 
-# Color cinta azul petroleo (lineal). Es el fondo de las refs DINOv2
-# canonicas (escena canonica con cinta visible) y por consigna debe
-# ser tambien el fondo del query tras enmascarar con SAM. Con esto
-# refs y queries viven en el MISMO dominio visual.
-CINTA_BG_RGB = (37, 65, 84)
+# Color cinta azul petroleo TAL Y COMO LO RENDERIZA Blender bajo
+# Dome Light (NO el lineal 37,65,84, sino el resultado tras tone-mapping
+# y view_transform=Standard). Medido en las esquinas de los renders
+# del set test20 bajo Dome Light + Cross-Polarization (2026-06-13).
+# Refs DINOv2 canonicas también bajo Dome Light → mismo fondo (128,165,185).
+CINTA_BG_RGB = (128, 165, 185)
 
 
 def neutralize_lab(arr: np.ndarray) -> np.ndarray:
@@ -336,7 +395,8 @@ def neutralize_lab(arr: np.ndarray) -> np.ndarray:
     """
     try:
         import cv2 as _cv2
-        bg = np.array([37.0, 65.0, 84.0], dtype=np.float32)
+        # Fondo cinta tras tone-mapping (Dome Light): (128,165,185).
+        bg = np.array([128.0, 165.0, 185.0], dtype=np.float32)
         piece_mask = np.linalg.norm(arr.astype(np.float32) - bg, axis=-1) > 20.0
         if not np.any(piece_mask):
             return arr
@@ -388,32 +448,74 @@ def estimate_color_predominant_sam(crop_img: Image.Image, mask: np.ndarray) -> n
         mask_fg = mask > 0
         if not np.any(mask_fg):
             mask_fg = np.ones((img_rgb.shape[0], img_rgb.shape[1]), dtype=bool)
-        avg_rgb = img_rgb[mask_fg].mean(axis=0)
+        
+        pixels_fg = img_rgb[mask_fg]
+        
+        # Calculate luminance for each pixel to detect highlights
+        lum = pixels_fg[:, 0] * 0.299 + pixels_fg[:, 1] * 0.587 + pixels_fg[:, 2] * 0.114
+        
+        # Trim the top 10% brightest pixels (specular reflections)
+        thresh = np.percentile(lum, 90)
+        keep = lum <= thresh
+        
+        if np.any(keep):
+            avg_rgb = pixels_fg[keep].mean(axis=0)
+        else:
+            avg_rgb = pixels_fg.mean(axis=0)
+            
         return avg_rgb
     except Exception:
         return np.array([160.0, 165.0, 169.0])
 
-
 # ─────────────────────────────────────────────────────────────────
-# Constantes geométricas del setup cenital (idénticas para todas
-# las muestras; NO dependen de la pieza observada).
+# Constantes geométricas del setup cenital — RESOLUCIÓN DINÁMICA.
+# Los parámetros físicos son fijos; los parámetros en píxeles se
+# derivan de la resolución real de la imagen de entrada.
+_SENSOR_WIDTH_MM = 36.0
+_CAM_CEN_FOCAL_MM = float(cfg.cameras.cenital.focal_length_mm)
+CAM_CEN_Z_MM = float(cfg.inference.calibration.camera_dist_mm)
+
+_actual_img_res = 640  # Updated dynamically per-sample from image dimensions
+
+# Defaults a 640 (compatibilidad con código legacy que usa constantes globales).
+# En runtime, las funciones recalculan dinámicamente según img_res_px.
 IMG_RES_PX = 640.0
 IMG_CENTER_PX = 320.0
-CAM_CEN_Z_MM = float(cfg.inference.calibration.camera_dist_mm)
-CAM_CEN_FOCAL_PX = float((cfg.cameras.cenital.focal_length_mm / 36.0) * IMG_RES_PX)
+CAM_CEN_FOCAL_PX = float((_CAM_CEN_FOCAL_MM / _SENSOR_WIDTH_MM) * IMG_RES_PX)
 PX_PER_MM_NOMINAL = float(CAM_CEN_FOCAL_PX / CAM_CEN_Z_MM)
 
 
-def _bbox_centroid_xy_mm(bbox_norm: list) -> tuple:
+def _cenital_geom(img_res_px_val=None):
+    """Devuelve (res, center, focal_px, px_per_mm) para la resolución dada.
+    Si img_res_px_val es None, usa el default global (640)."""
+    res = float(img_res_px_val) if img_res_px_val else IMG_RES_PX
+    center = res / 2.0
+    focal_px = (_CAM_CEN_FOCAL_MM / _SENSOR_WIDTH_MM) * res
+    px_mm = focal_px / CAM_CEN_Z_MM
+    return res, center, focal_px, px_mm
+
+
+
+
+
+
+
+
+
+
+
+def _bbox_centroid_xy_mm(bbox_norm: list, img_res_px_val=None) -> tuple:
     """Posición XY (mm) del centro del bbox cenital sobre el plano de la cinta,
     asumiendo proyección ortográfica nominal. Es una estimación de offset
-    radial, NO requiere conocer la pieza."""
+    radial, NO requiere conocer la pieza.
+    `img_res_px_val`: resolución real de la imagen. Si None, usa default 640."""
+    res, center, _, px_mm = _cenital_geom(img_res_px_val)
     cx_norm = (bbox_norm[0] + bbox_norm[2]) / 2.0
     cy_norm = (bbox_norm[1] + bbox_norm[3]) / 2.0
-    cx_px = cx_norm * IMG_RES_PX
-    cy_px = cy_norm * IMG_RES_PX
-    dx_mm = (cx_px - IMG_CENTER_PX) / PX_PER_MM_NOMINAL
-    dy_mm = (IMG_CENTER_PX - cy_px) / PX_PER_MM_NOMINAL
+    cx_px = cx_norm * res
+    cy_px = cy_norm * res
+    dx_mm = (cx_px - center) / px_mm
+    dy_mm = (center - cy_px) / px_mm
     return (dx_mm, dy_mm)
 
 
@@ -421,6 +523,7 @@ def observe_zenithal_surface_mm2(
     mask_cen: np.ndarray,
     bbox_cen_norm: list,
     measured_lateral_height_mm: float,
+    img_res_px_val=None,
 ) -> dict:
     """OBSERVADOR PURO: estima la superficie aparente en mm² que el sistema
     está viendo en la cámara cenital, **sin presuponer conocimiento de la pieza**.
@@ -453,7 +556,7 @@ def observe_zenithal_surface_mm2(
             }
 
         # 1) Posición radial del centroide en el plano de la cinta.
-        dx_mm, dy_mm = _bbox_centroid_xy_mm(bbox_cen_norm)
+        dx_mm, dy_mm = _bbox_centroid_xy_mm(bbox_cen_norm, img_res_px_val)
         r_mm = math.sqrt(dx_mm * dx_mm + dy_mm * dy_mm)
 
         # 2) Altura efectiva: mitad de la altura lateral medida (centro de masa
@@ -464,7 +567,8 @@ def observe_zenithal_surface_mm2(
         # 3) Calibración local en el plano del SUELO (Z=0). Distancia 3D del
         #    centro óptico al punto (X=dx, Y=dy, Z=0).
         d_floor = math.sqrt(r_mm * r_mm + CAM_CEN_Z_MM * CAM_CEN_Z_MM)
-        px_per_mm_floor = CAM_CEN_FOCAL_PX / d_floor
+        _, _, _focal_px_dyn, _ = _cenital_geom(img_res_px_val)
+        px_per_mm_floor = _focal_px_dyn / d_floor
 
         # 4) Área aparente "bruta": qué área en mm² ocuparía cada píxel si
         #    estuviera apoyado a Z=0 (calibración del plano del suelo).
@@ -589,7 +693,14 @@ def measure_lateral_height_mm_sam(mask: np.ndarray) -> float:
 # Cám lateral en BU (15, 0, 2.5) → mm; mira a (0,0,0).
 CAM_LAT_X_MM_V3 = float(cfg.cameras.lateral.position[0] * 10.0)
 CAM_LAT_Z_MM_V3 = float(cfg.cameras.lateral.position[2] * 10.0)
-CAM_FOCAL_PX_V3 = float((cfg.cameras.lateral.focal_length_mm / 36.0) * 640.0)
+_CAM_LAT_FOCAL_MM = float(cfg.cameras.lateral.focal_length_mm)
+CAM_FOCAL_PX_V3 = float((_CAM_LAT_FOCAL_MM / _SENSOR_WIDTH_MM) * 640.0)  # default 640
+
+
+def _lateral_focal_px(img_res_px_val=None):
+    """Focal lateral en px para la resolución dada."""
+    res = float(img_res_px_val) if img_res_px_val else 640.0
+    return (_CAM_LAT_FOCAL_MM / _SENSOR_WIDTH_MM) * res
 
 
 def _bbox_cen_xy_mm_v3(bbox_norm: list) -> tuple:
@@ -597,15 +708,17 @@ def _bbox_cen_xy_mm_v3(bbox_norm: list) -> tuple:
     el plano de la cinta respecto al centro óptico."""
     cx_norm = (bbox_norm[0] + bbox_norm[2]) / 2.0
     cy_norm = (bbox_norm[1] + bbox_norm[3]) / 2.0
-    cx_px = cx_norm * 640.0
-    cy_px = cy_norm * 640.0
-    return ((cx_px - 320.0) / PX_PER_MM_NOMINAL, (320.0 - cy_px) / PX_PER_MM_NOMINAL)
+    res, center, _, px_mm = _cenital_geom(None)  # uses default; caller can override
+    cx_px = cx_norm * res
+    cy_px = cy_norm * res
+    return ((cx_px - center) / px_mm, (center - cy_px) / px_mm)
 
 
 def estimate_lateral_height_mm_corrected_v3(
     mask_lat: np.ndarray,
     bbox_cen_norm: list,
     estimated_height_mm_initial: float = 9.6,
+    img_res_px: float = 640.0,
 ) -> tuple:
     """Versión v3 (Opción A): simétrica al pipeline cenital.
 
@@ -655,6 +768,7 @@ def estimate_lateral_height_mm_corrected_v3(
     #    - Paso 2: refinamiento usando h_step1/2 como pz_mm efectivo.
     #    Reduce el error sistematico en piezas altas (60481 h=19.2,
     #    poses verticales h_lat>15 mm) de ~3-5% a <0.5%.
+    focal_px = (_CAM_LAT_FOCAL_MM / _SENSOR_WIDTH_MM) * img_res_px
     pz_mm = max(estimated_height_mm_initial / 2.0, 0.5)
     dx = CAM_LAT_X_MM_V3 - px_mm
     dy = -py_mm
@@ -662,7 +776,7 @@ def estimate_lateral_height_mm_corrected_v3(
     d_act_1 = math.sqrt(dx * dx + dy * dy + dz * dz)
     if d_act_1 < 1e-3:
         d_act_1 = math.sqrt(CAM_LAT_X_MM_V3 ** 2 + CAM_LAT_Z_MM_V3 ** 2)
-    h_step1 = h_apparent_px * d_act_1 / CAM_FOCAL_PX_V3
+    h_step1 = h_apparent_px * d_act_1 / focal_px
 
     # Newton 1 step
     pz_mm_iter = max(h_step1 / 2.0, 0.5)
@@ -670,7 +784,7 @@ def estimate_lateral_height_mm_corrected_v3(
     d_act = math.sqrt(dx * dx + dy * dy + dz_iter * dz_iter)
     if d_act < 1e-3:
         d_act = d_act_1
-    px_per_mm_lat_local = CAM_FOCAL_PX_V3 / d_act
+    px_per_mm_lat_local = focal_px / d_act
     h_real_mm = h_apparent_px / px_per_mm_lat_local
     d_nom = math.sqrt(CAM_LAT_X_MM_V3 ** 2 + CAM_LAT_Z_MM_V3 ** 2)
     mag = d_nom / d_act
@@ -905,7 +1019,8 @@ def main():
                     if parsed_args.test_dir
                     else os.path.dirname(metadata_path))
     else:
-        test_dir = os.path.join(project_root, "data", "test_dual")
+        # Default: renders/test/test_dual (separación de dominios)
+        test_dir = os.path.join(project_root, "renders", "test", "test_dual")
         metadata_path = os.path.join(test_dir, "test_metadata.json")
 
     if parsed_args.report:
@@ -913,7 +1028,8 @@ def main():
         if not os.path.isabs(report_path_arg):
             report_path_arg = os.path.join(project_root, report_path_arg)
     else:
-        report_path_arg = os.path.join(project_root, "data", "eval_report.json")
+        # Default: reports/eval_report.json (separación de dominios)
+        report_path_arg = os.path.join(project_root, "reports", "eval_report.json")
 
     if not os.path.exists(metadata_path):
         log.error(f"Metadata no encontrada: {metadata_path}")
@@ -962,18 +1078,18 @@ def main():
     yolo_lat_pose_path = os.path.join(project_root, "models", "yolo_lateral_pose.pt")
     yolo_cen_pose = None
     yolo_lat_pose = None
-    use_kpts_observer = False
-    if HAS_KPTS_MODULE and os.path.exists(yolo_cen_pose_path) and os.path.exists(yolo_lat_pose_path):
+    use_kpts_observer = HAS_KPTS_MODULE and os.path.exists(yolo_cen_pose_path) and os.path.exists(yolo_lat_pose_path)
+    if use_kpts_observer:
         try:
             log.info(f"Cargando modelos YOLO-Pose: {yolo_cen_pose_path} + {yolo_lat_pose_path}")
             yolo_cen_pose = YOLO(yolo_cen_pose_path)
             yolo_lat_pose = YOLO(yolo_lat_pose_path)
-            use_kpts_observer = True
             log.info("[Fase5] Observador kpts ACTIVO (triangulacion 2-view).")
         except Exception as e:
             log.warning(f"[Fase5] No se pudieron cargar modelos pose: {e}. Fallback al observador SAM-bbox.")
+            use_kpts_observer = False
     else:
-        log.info("[Fase5] Observador kpts desactivado (sin modelos pose). "
+        log.info("[Fase5] Observador kpts desactivado (sin modelos pose o desactivado). "
                  "Se usa el observador SAM-bbox tradicional.")
 
     log.info("Cargando clasificador KNN + DINOv2...")
@@ -1097,6 +1213,10 @@ def main():
         img_lat_full = img_lat_cache[sample_idx]
         iw, ih = img_cen_full.size
         liw, lih = img_lat_full.size
+        # Dynamic resolution: update global-like ref for this sample
+        _img_res_cen = float(iw)
+        _img_res_lat = float(liw)
+        _actual_img_res = int(iw)
 
         cx1, cy1, cx2, cy2 = cen_bboxes_full[sample_idx]
         lx1, ly1, lx2, ly2 = lat_bboxes_full[sample_idx]
@@ -1186,7 +1306,20 @@ def main():
         TH_TIGHT_DELTA_E = 18.0   # ~JND fuerte
         TH_LAX_DELTA_E   = 35.0   # solo paleta del set (7 colores) muy distantes
 
-        parts_in_set = [p for p in REAL_SETS["75078-1"]["parts"] if p["ref"] in SELECTED_PARTS]
+        # Construir lista de piezas candidatas.
+        # Preferencia: piezas con embeddings en BD (dinámico, no limitado a 75078-1).
+        # Fallback: REAL_SETS["75078-1"] filtrado por SELECTED_PARTS.
+        try:
+            from _db_helpers import get_all_ref_color_combinations_from_db
+            _parts_db = get_all_ref_color_combinations_from_db()
+            if _parts_db:
+                parts_in_set = _parts_db
+            else:
+                parts_in_set = [{"ref": p["ref"], "color_code": str(p["color_code"])}
+                                for p in REAL_SETS["75078-1"]["parts"] if p["ref"] in SELECTED_PARTS]
+        except Exception:
+            parts_in_set = [{"ref": p["ref"], "color_code": str(p["color_code"])}
+                            for p in REAL_SETS["75078-1"]["parts"] if p["ref"] in SELECTED_PARTS]
 
         cen_de = float(cen_est2_catalog.get("_delta_e", 0.0))
         # Construir set de codes de color permitidos según las 3 ramas.
@@ -1241,8 +1374,31 @@ def main():
         #   - Si los modelos YOLO-Pose estan cargados y detectan
         #     >=6 keypoints en ambas camaras → usar triangulacion 2-view.
         #   - Si no, fallback al observador SAM-bbox (Fases 1-4).
+        # 1. SAM-BBox (Standard)
+        try:
+            h_sam_bbox, _mag_lat, _d_act_lat = estimate_lateral_height_mm_corrected_v3(
+                mask_lat, [cx1, cy1, cx2, cy2],
+                estimated_height_mm_initial=9.6,
+                img_res_px=_img_res_lat,
+            )
+        except Exception:
+            h_sam_bbox = measure_lateral_height_mm_sam(mask_lat)
+        if h_sam_bbox <= 0:
+            h_sam_bbox = measure_lateral_height_mm_sam(mask_lat)
+            
+        zen_obs_sam = observe_zenithal_surface_mm2(
+            mask_cen, [cx1, cy1, cx2, cy2],
+            measured_lateral_height_mm=h_sam_bbox,
+            img_res_px_val=_img_res_cen,
+        )
+        area_sam_bbox = zen_obs_sam["footprint_area_mm2"]
+        
+        # 2. Keypoints 3D (Pure)
+        h_kpts_3d = None
+        area_kpts_3d = None
+        n_kps_val = 0
         kpts_obs = None
-        kpts_used = False
+        
         if use_kpts_observer:
             try:
                 cp = cen_paths[valid_idx.index(sample_idx)]
@@ -1251,55 +1407,47 @@ def main():
                 kp_lat = extract_yolo_pose_keypoints(yolo_lat_pose, lp, conf=0.20)
                 if kp_cen is not None and kp_lat is not None:
                     kpts_obs = kpts_observer_fn(kp_cen, kp_lat, conf_min=0.20)
-                    if (kpts_obs.get("n_valid", 0) >= 6
-                            and kpts_obs.get("footprint_area_mm2") is not None
-                            and kpts_obs.get("lateral_height_mm") is not None):
-                        kpts_used = True
+                    if kpts_obs.get("n_valid", 0) >= 4:
+                        h_kpts_3d = float(kpts_obs.get("lateral_height_mm", 0.0))
+                        area_kpts_3d = float(kpts_obs.get("footprint_area_mm2", 0.0))
+                        n_kps_val = kpts_obs.get("n_valid", 0)
             except Exception as e:
-                if sample_idx < 3:
-                    log.warning(f"[kpts] sample {sample_idx} fallback: {e}")
+                pass
 
-        if kpts_used:
-            # Observaciones via triangulacion 2-view.
-            measured_height = float(kpts_obs["lateral_height_mm"])
-            obs_footprint_area_mm2 = float(kpts_obs["footprint_area_mm2"])
-            # Para mantener compat con el comparador, calculamos un
-            # apparent_area "equivalente" magnificando el footprint con la
-            # altura medida (el comparador hace el mismo modelo).
-            try:
-                z_eff_kp = max(0.5, measured_height * 0.5)
-                mag_lin = CAM_CEN_Z_MM / max(1.0, CAM_CEN_Z_MM - z_eff_kp)
-                obs_apparent_area_mm2 = obs_footprint_area_mm2 * (mag_lin ** 2)
-            except Exception:
-                obs_apparent_area_mm2 = obs_footprint_area_mm2
-        else:
-            # Fallback observador SAM-bbox.
-            try:
-                measured_height, _mag_lat, _d_act_lat = (
-                    estimate_lateral_height_mm_corrected_v3(
-                        mask_lat, [cx1, cy1, cx2, cy2],
-                        estimated_height_mm_initial=9.6,
-                    )
-                )
-            except Exception:
-                measured_height = measure_lateral_height_mm_sam(mask_lat)
-            if measured_height <= 0:
-                measured_height = measure_lateral_height_mm_sam(mask_lat)
-            zen_obs = observe_zenithal_surface_mm2(
+        # 3. Hybrid (SAM + Keypoints 3D height)
+        h_hybrid = None
+        area_hybrid = None
+        if h_kpts_3d is not None and h_kpts_3d > 0.0:
+            h_hybrid = h_kpts_3d
+            zen_obs_hybrid = observe_zenithal_surface_mm2(
                 mask_cen, [cx1, cy1, cx2, cy2],
-                measured_lateral_height_mm=measured_height,
+                measured_lateral_height_mm=h_hybrid,
+                img_res_px_val=_img_res_cen,
             )
-            obs_apparent_area_mm2 = zen_obs["apparent_area_mm2"]
-            obs_footprint_area_mm2 = zen_obs["footprint_area_mm2"]
+            area_hybrid = zen_obs_hybrid["footprint_area_mm2"]
+
+        # Decision-making logic: best is Hybrid, then fallback to SAM-BBox
+        if h_hybrid is not None and area_hybrid is not None:
+            measured_height = h_hybrid
+            obs_footprint_area_mm2 = area_hybrid
+            z_eff = max(0.5, measured_height * 0.5)
+            mag_lin = CAM_CEN_Z_MM / max(1.0, CAM_CEN_Z_MM - z_eff)
+            obs_apparent_area_mm2 = obs_footprint_area_mm2 * (mag_lin ** 2)
+            kpts_used = True
+        else:
+            measured_height = h_sam_bbox
+            obs_footprint_area_mm2 = area_sam_bbox
+            obs_apparent_area_mm2 = zen_obs_sam["apparent_area_mm2"]
+            kpts_used = False
 
         if sample_idx < 3:
-            mode_obs = "kpts_2view" if kpts_used else "sam_bbox"
+            mode_obs = "hybrid_kpts" if kpts_used else "sam_bbox"
             log.info(
                 f"    [OBS:{mode_obs}] mask_pixels={int(np.sum(mask_cen > 0))} | "
                 f"h_lat_meas={measured_height:.2f}mm | "
                 f"area_apparent={obs_apparent_area_mm2:.1f}mm² | "
                 f"area_footprint={obs_footprint_area_mm2:.1f}mm²"
-                + (f" | n_kps={kpts_obs.get('n_valid')}" if kpts_used else "")
+                + (f" | n_kps={n_kps_val}" if kpts_used else "")
             )
 
         # Phase 2: Surface gating (criterio híbrido adaptativo de error)
@@ -1374,13 +1522,16 @@ def main():
         if not valid_by_surface:
             valid_by_surface = valid_by_color
 
-        # Phase 3: Height gating (lateral, +/-15%)
-        # La medida de altura ya está calculada arriba (observación única).
+        # Phase 3: Height gating (lateral, +/-35%)
+        # Tolerancia ampliada (era ±15%) bajo Dome Light: SAM tiende a
+        # incluir sombras/halos en la silueta lateral, especialmente con
+        # piezas translúcidas / oscuras, lo que distorsiona la altura
+        # medida. La medida de altura ya está calculada arriba (obs).
         valid_by_height = []
         for ref in valid_by_surface:
             nominals = get_nominal_heights(ref)
             for nom in nominals:
-                if 0.85 * nom <= measured_height <= 1.15 * nom:
+                if 0.65 * nom <= measured_height <= 1.35 * nom:
                     valid_by_height.append(ref)
                     break
         if not valid_by_height:
@@ -1522,6 +1673,19 @@ def main():
             "lateral_height_db_mm": (
                 round(float(gt_lateral_height), 2) if gt_lateral_height is not None else None
             ),
+            # --- Detailed comparative metrics ---
+            "obs_sam_bbox": {
+                "height": round(float(h_sam_bbox), 2) if h_sam_bbox is not None else None,
+                "area": round(float(area_sam_bbox), 2) if area_sam_bbox is not None else None
+            },
+            "obs_kpts_3d": {
+                "height": round(float(h_kpts_3d), 2) if h_kpts_3d is not None else None,
+                "area": round(float(area_kpts_3d), 2) if area_kpts_3d is not None else None
+            },
+            "obs_hybrid": {
+                "height": round(float(h_hybrid), 2) if h_hybrid is not None else None,
+                "area": round(float(area_hybrid), 2) if area_hybrid is not None else None
+            },
             "lateral_height_error_rel_pct": lateral_h_err_pct,
             "effective_height_db_mm": (
                 round(float(gt_effective_height), 2) if gt_effective_height is not None else None
@@ -1563,7 +1727,7 @@ def main():
             "correct_samples": correct_count,
             "accuracy": round(accuracy, 2),
             "render_engine": "BLENDER_EEVEE",
-            "resolution": "640x640",
+            "resolution": f"{_actual_img_res}x{_actual_img_res}",
             "metadata_path": metadata_path,
             "test_dir": test_dir,
             "yolo_detections_cenital": yolo_detections_cenital,

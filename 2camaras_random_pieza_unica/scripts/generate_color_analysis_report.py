@@ -68,7 +68,11 @@ code{background:#f1f5f9;padding:1px 5px;border-radius:3px;font-family:ui-monospa
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--eval', required=True)
-    ap.add_argument('--out', required=True)
+    # Default: reports/ (separación de dominios)
+    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    default_out = os.path.join(project_root, 'reports')
+    ap.add_argument('--out', default=default_out,
+                    help='Directorio de salida para reports (default: reports/)')
     args = ap.parse_args()
 
     with open(args.eval) as f:

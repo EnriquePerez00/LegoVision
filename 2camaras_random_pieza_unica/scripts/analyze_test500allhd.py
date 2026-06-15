@@ -233,4 +233,6 @@ for r in renders:
     r_mm = math.sqrt(x_mm**2 + y_mm**2)
     radii_mm.append(r_mm)
     # bbox cenital centroid
-    bn = r.
+    cams_r = r.get("cameras", {})
+    cen_r = cams_r.get("cenital", {})
+    bn = cen_r.get("bbox_norm", [0.4, 0.4, 0.6, 0.6])

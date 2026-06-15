@@ -21,7 +21,7 @@ epochs_without_delta_improvement = 0
 
 def on_fit_epoch_end(trainer):
     """Callback de Ultralytics ejecutado al finalizar cada época de entrenamiento."""
-    global RUN_ID, best_map50, epochs_without_delta_improvement
+    global best_map50, epochs_without_delta_improvement
     if not RUN_ID:
         return
         

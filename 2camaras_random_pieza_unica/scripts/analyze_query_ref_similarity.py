@@ -262,4 +262,13 @@ print(SEP)
 print("  RESULTADOS GLOBALES")
 print(SEP)
 
-valid_cen = [r for r in
+valid_cen = [r for r in rows if r["cen_max"] is not None]
+valid_lat = [r for r in rows if r["lat_max"] is not None]
+
+if valid_cen:
+    cen_maxs = [r["cen_max"] for r in valid_cen]
+    print(f"  Cenital  N={len(valid_cen):3d}  max_sim: mean={sum(cen_maxs)/len(cen_maxs):.3f}  min={min(cen_maxs):.3f}  max={max(cen_maxs):.3f}")
+if valid_lat:
+    lat_maxs = [r["lat_max"] for r in valid_lat]
+    print(f"  Lateral  N={len(valid_lat):3d}  max_sim: mean={sum(lat_maxs)/len(lat_maxs):.3f}  min={min(lat_maxs):.3f}  max={max(lat_maxs):.3f}")
+print()

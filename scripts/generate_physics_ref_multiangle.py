@@ -4,7 +4,7 @@
 # Cada pieza cae sobre la cinta, estabiliza y se renderiza con la misma camara que YOLO.
 # Alineacion total: referencias DINOv2 == dataset YOLO == inferencia real.
 # Uso: blender -b -P scripts/generate_physics_ref_multiangle.py
-import os, sys, random, math
+import os, sys, random, math, json
 
 try:
     import bpy, bpy_extras

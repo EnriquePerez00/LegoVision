@@ -205,7 +205,7 @@ class ApiBridge:
             return {"status": "error", "message": "Ya hay un entrenamiento en curso."}
 
         def _run():
-            global _training_proc1, _training_proc2, _stop_training_flag, _generation_progress
+            global _training_proc1, _training_proc2, _stop_training_flag
             _stop_training_flag = False
             import time
             
@@ -427,7 +427,7 @@ class ApiBridge:
             return {"status": "error", "message": "Ya hay un proceso de indexacion en curso."}
 
         def _run():
-            global _indexing_proc1, _indexing_proc2, _indexing_progress, _stop_indexing_flag
+            global _indexing_proc1, _indexing_proc2, _indexing_progress
             venv_python = os.path.join(project_root, ".venv", "bin", "python")
             python_exec = venv_python if os.path.exists(venv_python) else sys.executable
             blender_exec = "/opt/homebrew/bin/blender"
@@ -523,7 +523,6 @@ class ApiBridge:
             run["index_alive"] = bool(_indexing_thread and _indexing_thread.is_alive())
 
             # Si la generación de imágenes está activa, añadir detalles de progreso y forzar estado "generating"
-            global _generation_progress
             if _generation_progress.get("active"):
                 run["status"] = "generating"
                 run["generation_current"] = _generation_progress["current"]
@@ -546,7 +545,7 @@ class ApiBridge:
         """Detiene el entrenamiento YOLO en curso (dataset Blender o YOLO train).
         Usa _kill_proc (SIGKILL al grupo) para garantizar que Blender y sus hijos mueren.
         """
-        global _stop_training_flag, _training_proc1, _training_proc2
+        global _stop_training_flag
         _stop_training_flag = True
         killed = []
         for proc, name in [(_training_proc1, 'Blender/Dataset'), (_training_proc2, 'YOLO Train')]:
@@ -561,7 +560,7 @@ class ApiBridge:
         """Detiene la indexacion DINOv2 en curso.
         Usa _kill_proc (SIGKILL al grupo) para garantizar que Blender y sus hijos mueren.
         """
-        global _stop_indexing_flag, _indexing_proc1, _indexing_proc2, _indexing_progress
+        global _stop_indexing_flag
         _stop_indexing_flag = True
         killed = []
         for proc, name in [(_indexing_proc1, 'Blender/Refs'), (_indexing_proc2, 'DINOv2 Index')]:
@@ -584,7 +583,6 @@ class ApiBridge:
 
     def get_indexing_progress(self) -> dict:
         """Devuelve el progreso actual de la indexacion DINOv2."""
-        global _indexing_progress
         pct = 0
         if _indexing_progress["total"] > 0:
             pct = round((_indexing_progress["current"] / _indexing_progress["total"]) * 100, 1)
@@ -665,7 +663,7 @@ class ApiBridge:
             return {"status": "error", "message": "Ya hay un proceso de validación en curso."}
 
         def _run():
-            global _validation_proc, _validation_progress, _stop_validation_flag
+            global _validation_proc, _stop_validation_flag
             _stop_validation_flag = False
             
             blender_path = os.getenv("BLENDER_PATH", "/Users/I764690/Applications/Blender.app/Contents/MacOS/Blender")
@@ -803,7 +801,6 @@ class ApiBridge:
 
     def get_validation_progress(self) -> dict:
         """Devuelve el progreso actual de la validación de posiciones estables."""
-        global _validation_progress
         pct = 0
         if _validation_progress["total"] > 0:
             pct = round((_validation_progress["current"] / _validation_progress["total"]) * 100, 1)
@@ -833,7 +830,7 @@ class ApiBridge:
 
     def stop_validation(self) -> dict:
         """Detiene la validación en curso."""
-        global _stop_validation_flag, _validation_proc, _validation_progress
+        global _stop_validation_flag
         _stop_validation_flag = True
         if _validation_proc:
             _kill_proc(_validation_proc, 'Blender/Validation')
@@ -871,7 +868,7 @@ class ApiBridge:
             return {"status": "error", "message": f"Error guardando JSON temporal de poses: {e}"}
 
         def _run():
-            global _dino_fov_proc1, _dino_fov_proc2, _dino_fov_progress, _stop_dino_fov_flag
+            global _dino_fov_proc1, _dino_fov_proc2, _stop_dino_fov_flag
             _stop_dino_fov_flag = False
 
             # Inicializar progreso. Calculamos aproximadamente cuántos frames de renderizado haremos:
@@ -1024,12 +1021,11 @@ class ApiBridge:
 
     def get_dinov2_fov_progress(self) -> dict:
         """Devuelve el estado y progreso de la simulación FOV DINOv2."""
-        global _dino_fov_progress
         return _dino_fov_progress
 
     def stop_dinov2_fov_simulation(self) -> dict:
         """Detiene la simulación y el indexado en curso."""
-        global _stop_dino_fov_flag, _dino_fov_proc1, _dino_fov_proc2, _dino_fov_progress
+        global _stop_dino_fov_flag
         _stop_dino_fov_flag = True
         killed = []
         if _dino_fov_proc1 and _dino_fov_proc1.poll() is None:
@@ -1471,7 +1467,6 @@ class ApiBridge:
         2) Genera el Excel con imagenes BrickLink + renders + comparativa semantico vs experimental
         Output: data/validation_report_{set_id}.xlsx
         """
-        global _validation_progress
         try:
             blender_path = os.getenv("BLENDER_PATH", "/Users/I764690/Applications/Blender.app/Contents/MacOS/Blender")
             validation_json = os.path.join(project_root, "data", "tmp", "stability_validation_results.json")

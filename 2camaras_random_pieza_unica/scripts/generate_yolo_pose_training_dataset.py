@@ -80,8 +80,7 @@ except Exception:
     log = _D()
 
 
-SET_ID = "75078-1"
-SELECTED_PARTS = list(cfg.pieces.selected_parts)
+# Sin hardcoding: se usa toda la BD dinamicamente desde REAL_SETS
 RENDER_RES_DEFAULT = cfg.render.resolution.width
 TARPS_MIN_TIPPING = float(getattr(cfg.stable_poses, "tarps_min_tipping", 0.04))
 EMPTY_FRAME_RATIO_DEFAULT = float(cfg.yolo.dataset.empty_frame_ratio)
@@ -93,21 +92,24 @@ N_KPS = 9
 # ─────────────────────────────────────────────────────────────────
 # Plan TARPS (igual que generate_300_canonical_set.py)
 # ─────────────────────────────────────────────────────────────────
-def get_unique_ref_color_combinations(set_id):
+def get_unique_ref_color_combinations_all():
+    """Todas las (ref, color_code, color_hex) unicas de TODA la BD."""
     seen, combos = set(), []
-    for p in REAL_SETS[set_id]["parts"]:
-        if p["ref"] not in SELECTED_PARTS:
-            continue
-        key = (p["ref"], p["color_code"])
-        if key in seen:
-            continue
-        seen.add(key)
-        combos.append({
-            "ref": p["ref"],
-            "color_code": p["color_code"],
-            "color_hex": p.get("color_hex", "#A0A5A9"),
-            "color_name": p.get("color_name", "Unknown"),
-        })
+    for set_id, set_data in REAL_SETS.items():
+        for p in set_data.get("parts", []):
+            ref = p.get("ref", "")
+            if not ref or "stk" in ref.lower() or ref.lower().startswith("sw") or ref.lower().startswith("fig"):
+                continue
+            key = (ref, str(p.get("color_code", "0")))
+            if key in seen:
+                continue
+            seen.add(key)
+            combos.append({
+                "ref": ref,
+                "color_code": str(p.get("color_code", "0")),
+                "color_hex": p.get("color_hex", "#A0A5A9"),
+                "color_name": p.get("color_name", "Unknown"),
+            })
     return combos
 
 
@@ -220,13 +222,19 @@ def main():
         args = sys.argv[sys.argv.index("--") + 1:]
     parser = argparse.ArgumentParser()
     parser.add_argument("--camera", choices=["cenital", "lateral"], required=True)
-    parser.add_argument("--output_dir", required=True)
+    # Default: renders/yolo_training/{camera} (separación de dominios)
+    parser.add_argument("--output_dir", default=None,
+                        help="Directorio de salida YOLO (default: renders/yolo_training/{camera})")
     parser.add_argument("--num_frames", type=int, default=2000)
     parser.add_argument("--empty_ratio", type=float, default=EMPTY_FRAME_RATIO_DEFAULT)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--render_res", type=int, default=RENDER_RES_DEFAULT)
     pa = parser.parse_known_args(args)[0]
 
+    # Resolver output_dir si no se especificó
+    if pa.output_dir is None:
+        pa.output_dir = os.path.join(project_root, "renders", "yolo_training", pa.camera)
+    
     random.seed(pa.seed)
     images_dir = os.path.join(pa.output_dir, "images", "train")
     labels_dir = os.path.join(pa.output_dir, "labels", "train")
@@ -252,7 +260,7 @@ def main():
         kps_data = json.load(f)
     kps_by_ref = {ref: data["keypoints_bu"] for ref, data in kps_data["pieces"].items()}
 
-    combos = get_unique_ref_color_combinations(SET_ID)
+    combos = get_unique_ref_color_combinations_all()
     universe = build_universe(combos, cache)
     log.info(f"[plan] combos={len(combos)} | universe={len(universe)}")
 
@@ -413,7 +421,7 @@ def main():
     meta_path = os.path.join(pa.output_dir, "dataset_metadata.json")
     with open(meta_path, "w", encoding="utf-8") as f:
         json.dump({
-            "set_id": SET_ID,
+            "set_id": "ALL",
             "camera": pa.camera,
             "scene": "canonical",
             "render_res": pa.render_res,

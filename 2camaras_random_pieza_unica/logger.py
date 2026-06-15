@@ -98,7 +98,6 @@ def get_logger(module_name: str) -> logging.Logger:
     Returns:
         logging.Logger configurado y listo para usar.
     """
-    global _loggers
 
     # Normalizar nombre
     name = module_name.lower().replace(" ", "_")

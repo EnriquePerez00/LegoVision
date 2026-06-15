@@ -209,7 +209,44 @@ def _err_class(err_pct, scale=(20, 50)):
     return "err-good"
 
 
-def render_html(ref, color_code, samples, data_dir, meta_lookup):
+
+def load_training_metadata(ref_dir):
+    lookup = {}
+    import glob
+    for p in glob.glob(os.path.join(ref_dir, "metadata_worker_*.json")):
+        try:
+            with open(p) as f:
+                data = json.load(f)
+                for r in data.get("renders", []):
+                    fname = r.get("file_name")
+                    cameras = r.get("cameras", {})
+                    cen_bbox = cameras.get("cenital", {}).get("bbox_norm")
+                    lat_bbox = cameras.get("lateral", {}).get("bbox_norm")
+                    lookup[fname] = {
+                        "cenital": cen_bbox,
+                        "lateral": lat_bbox
+                    }
+        except Exception:
+            pass
+    return lookup
+
+
+def find_training_ref_file(ref_dir, cam_name, ref, pose_idx):
+    import glob
+    # Try with rot000 first
+    pattern = f"ref_{ref}_*_pose{pose_idx:02d}_rot000.png"
+    matches = glob.glob(os.path.join(ref_dir, cam_name, pattern))
+    if matches:
+        return matches[0]
+    # Fallback to any rotation
+    pattern_any = f"ref_{ref}_*_pose{pose_idx:02d}_rot*.png"
+    matches = glob.glob(os.path.join(ref_dir, cam_name, pattern_any))
+    if matches:
+        return matches[0]
+    return None
+
+
+def render_html(ref, color_code, samples, data_dir, meta_lookup, training_metadata=None, ref_dir=None):
     n = len(samples)
     n_correct = sum(1 for s in samples if s.get("model_match"))
     accuracy = (n_correct / n * 100.0) if n else 0.0
@@ -306,31 +343,99 @@ def render_html(ref, color_code, samples, data_dir, meta_lookup):
 
         parts.append("<div class='row'>")
         if cen_img and bbox_cen:
+            w, h = cen_img.size
+            cx1 = max(0, int(bbox_cen[0] * w))
+            cy1 = max(0, int(bbox_cen[1] * h))
+            cx2 = min(w, int(bbox_cen[2] * w))
+            cy2 = min(h, int(bbox_cen[3] * h))
+            cen_crop = cen_img.crop((cx1, cy1, cx2, cy2))
+
             mask_c = sam_mask(cen_img, bbox_cen)
-            cen_bb = draw_bbox(cen_img, bbox_cen)
             cen_ov = overlay_mask(cen_img, mask_c, color=(0, 255, 0))
+            cen_ov_crop = cen_ov.crop((cx1, cy1, cx2, cy2))
             cen_can = crop_with_cinta_bg(cen_img, mask_c, bbox_cen)
+
             parts.append(
-                f"<div class='panel'><div class='lbl'>CEN orig+bbox</div>"
-                f"<img src='{to_b64(cen_bb)}'/></div>"
-                f"<div class='panel'><div class='lbl'>CEN SAM mask</div>"
-                f"<img src='{to_b64(cen_ov)}'/></div>"
+                f"<div class='panel'><div class='lbl'>CEN crop bbox</div>"
+                f"<img src='{to_b64(cen_crop)}'/></div>"
+                f"<div class='panel'><div class='lbl'>CEN SAM crop</div>"
+                f"<img src='{to_b64(cen_ov_crop)}'/></div>"
                 f"<div class='panel'><div class='lbl'>CEN canvas DINOv2</div>"
                 f"<img src='{to_b64(cen_can, max_side=224)}'/></div>"
             )
+
+            # Training counterpart
+            if ref_dir and training_metadata:
+                ref_path_cen = find_training_ref_file(ref_dir, "cenital", ref, s.get('pose_index_gt'))
+                if ref_path_cen and os.path.isfile(ref_path_cen):
+                    try:
+                        ref_img_cen = Image.open(ref_path_cen).convert("RGB")
+                        ref_fname_cen = os.path.basename(ref_path_cen)
+                        bbox_ref_cen = training_metadata.get(ref_fname_cen, {}).get("cenital")
+                        if bbox_ref_cen:
+                            rw, rh = ref_img_cen.size
+                            rx1 = max(0, int(bbox_ref_cen[0] * rw))
+                            ry1 = max(0, int(bbox_ref_cen[1] * rh))
+                            rx2 = min(rw, int(bbox_ref_cen[2] * rw))
+                            ry2 = min(rh, int(bbox_ref_cen[3] * rh))
+                            ref_crop_cen = ref_img_cen.crop((rx1, ry1, rx2, ry2))
+                            ref_can_cen = crop_with_cinta_bg(ref_img_cen, np.ones((rh, rw), dtype=np.uint8) * 255, bbox_ref_cen)
+                            parts.append(
+                                f"<div class='panel' style='border-color: #10b981;'><div class='lbl' style='color: #10b981;'>CEN TRAIN crop (no SAM)</div>"
+                                f"<img src='{to_b64(ref_crop_cen)}'/></div>"
+                                f"<div class='panel' style='border-color: #10b981;'><div class='lbl' style='color: #10b981;'>CEN TRAIN canvas (no SAM)</div>"
+                                f"<img src='{to_b64(ref_can_cen, max_side=224)}'/></div>"
+                            )
+                    except Exception:
+                        pass
+
         if lat_img and bbox_lat:
+            w, h = lat_img.size
+            lx1 = max(0, int(bbox_lat[0] * w))
+            ly1 = max(0, int(bbox_lat[1] * h))
+            lx2 = min(w, int(bbox_lat[2] * w))
+            ly2 = min(h, int(bbox_lat[3] * h))
+            lat_crop = lat_img.crop((lx1, ly1, lx2, ly2))
+
             mask_l = sam_mask(lat_img, bbox_lat)
-            lat_bb = draw_bbox(lat_img, bbox_lat)
             lat_ov = overlay_mask(lat_img, mask_l, color=(0, 255, 0))
+            lat_ov_crop = lat_ov.crop((lx1, ly1, lx2, ly2))
             lat_can = crop_with_cinta_bg(lat_img, mask_l, bbox_lat)
+
             parts.append(
-                f"<div class='panel'><div class='lbl'>LAT orig+bbox</div>"
-                f"<img src='{to_b64(lat_bb)}'/></div>"
-                f"<div class='panel'><div class='lbl'>LAT SAM mask</div>"
-                f"<img src='{to_b64(lat_ov)}'/></div>"
+                f"<div class='panel'><div class='lbl'>LAT crop bbox</div>"
+                f"<img src='{to_b64(lat_crop)}'/></div>"
+                f"<div class='panel'><div class='lbl'>LAT SAM crop</div>"
+                f"<img src='{to_b64(lat_ov_crop)}'/></div>"
                 f"<div class='panel'><div class='lbl'>LAT canvas DINOv2</div>"
                 f"<img src='{to_b64(lat_can, max_side=224)}'/></div>"
             )
+
+            # Training counterpart
+            if ref_dir and training_metadata:
+                ref_path_lat = find_training_ref_file(ref_dir, "lateral", ref, s.get('pose_index_gt'))
+                if ref_path_lat and os.path.isfile(ref_path_lat):
+                    try:
+                        ref_img_lat = Image.open(ref_path_lat).convert("RGB")
+                        ref_fname_lat = os.path.basename(ref_path_lat)
+                        bbox_ref_lat = training_metadata.get(ref_fname_lat, {}).get("lateral")
+                        if bbox_ref_lat:
+                            rw, rh = ref_img_lat.size
+                            rx1 = max(0, int(bbox_ref_lat[0] * rw))
+                            ry1 = max(0, int(bbox_ref_lat[1] * rh))
+                            rx2 = min(rw, int(bbox_ref_lat[2] * rw))
+                            ry2 = min(rh, int(bbox_ref_lat[3] * rh))
+                            ref_crop_lat = ref_img_lat.crop((rx1, ry1, rx2, ry2))
+                            ref_can_lat = crop_with_cinta_bg(ref_img_lat, np.ones((rh, rw), dtype=np.uint8) * 255, bbox_ref_lat)
+                            parts.append(
+                                f"<div class='panel' style='border-color: #10b981;'><div class='lbl' style='color: #10b981;'>LAT TRAIN crop (no SAM)</div>"
+                                f"<img src='{to_b64(ref_crop_lat)}'/></div>"
+                                f"<div class='panel' style='border-color: #10b981;'><div class='lbl' style='color: #10b981;'>LAT TRAIN canvas (no SAM)</div>"
+                                f"<img src='{to_b64(ref_can_lat, max_side=224)}'/></div>"
+                            )
+                    except Exception:
+                        pass
+
         parts.append("</div>")
 
         gt_color_hex = (s.get("color_hex_gt") or "")
@@ -379,6 +484,56 @@ def render_html(ref, color_code, samples, data_dir, meta_lookup):
             f"<td>—</td></tr>"
         )
         parts.append("</tbody></table>")
+        
+        # Comparative Section
+        sam_info = s.get("obs_sam_bbox", {})
+        kpts_info = s.get("obs_kpts_3d", {})
+        hybrid_info = s.get("obs_hybrid", {})
+        
+        parts.append("<div class='comparison-block' style='margin-top:10px; border-top:1px dashed #ccc; padding-top:10px;'>")
+        parts.append("<h4 style='margin:0 0 6px 0; font-size:13px; color:#1e293b;'>Comparativa de Métodos de Medición (Altura / Superficie)</h4>")
+        parts.append("<table style='width:100%; font-size:11px;'><thead><tr><th>Método</th><th>Altura</th><th>Error Alt.</th><th>Superficie</th><th>Error Sup.</th></tr></thead><tbody>")
+        
+        gt_h = s.get("lateral_height_db_mm")
+        gt_area = s.get("surface_db_silhouette_mm2")
+        
+        def pct_err(est, gt):
+            if est is None or gt is None or gt == 0: return "—"
+            err = abs(est - gt) / gt * 100
+            return f"{err:.1f}%"
+            
+        # SAM/BBox
+        sam_h = sam_info.get("height")
+        sam_a = sam_info.get("area")
+        parts.append(
+            f"<tr><td>SAM/BBox (Prior paraxial)</td>"
+            f"<td>{sam_h if sam_h is not None else '—'} mm</td>"
+            f"<td>{pct_err(sam_h, gt_h)}</td>"
+            f"<td>{sam_a if sam_a is not None else '—'} mm²</td>"
+            f"<td>{pct_err(sam_a, gt_area)}</td></tr>"
+        )
+        # Keypoints 3D
+        kpts_h = kpts_info.get("height")
+        kpts_a = kpts_info.get("area")
+        parts.append(
+            f"<tr><td>Keypoints 3D (Puro Triangulación)</td>"
+            f"<td>{kpts_h if kpts_h is not None else '—'} mm</td>"
+            f"<td>{pct_err(kpts_h, gt_h)}</td>"
+            f"<td>{kpts_a if kpts_a is not None else '—'} mm²</td>"
+            f"<td>{pct_err(kpts_a, gt_area)}</td></tr>"
+        )
+        # Hybrid
+        hybrid_h = hybrid_info.get("height")
+        hybrid_a = hybrid_info.get("area")
+        parts.append(
+            f"<tr><td><strong>Híbrido (SAM + Kpts height)</strong></td>"
+            f"<td><strong>{hybrid_h if hybrid_h is not None else '—'} mm</strong></td>"
+            f"<td><strong>{pct_err(hybrid_h, gt_h)}</strong></td>"
+            f"<td><strong>{hybrid_a if hybrid_a is not None else '—'} mm²</strong></td>"
+            f"<td><strong>{pct_err(hybrid_a, gt_area)}</strong></td></tr>"
+        )
+        parts.append("</tbody></table>")
+        parts.append("</div>")
         parts.append("</div>")
 
     parts.append("</body></html>")
@@ -410,6 +565,12 @@ def main():
     print(f"[piece_report] eval samples = {len(eval_results)} | "
           f"metadata bboxes = {len(meta_lookup)}")
 
+    ref_dir = os.path.join(pa.data_dir, "..", "dinov2_refs_v4_canonical")
+    if not os.path.isdir(ref_dir):
+        ref_dir = os.path.join(pa.data_dir, "..", "dinov2_refs_v3_canonical")
+    training_metadata = load_training_metadata(ref_dir)
+    print(f"[piece_report] Loaded {len(training_metadata)} training metadata entries from {ref_dir}")
+
     targets = []  # list of (ref, color_code)
     if pa.pieces:
         for tok in pa.pieces:
@@ -436,9 +597,10 @@ def main():
             cc = color_code or "all"
             out_path = os.path.join(pa.out_dir, f"piece_{ref}_{cc}.html")
         print(f"[piece_report] {ref} (color {color_code}): {len(samples)} samples → {out_path}")
-        html = render_html(ref, color_code, samples, pa.data_dir, meta_lookup)
+        html = render_html(ref, color_code, samples, pa.data_dir, meta_lookup, training_metadata, ref_dir)
         with open(out_path, "w", encoding="utf-8") as f:
             f.write(html)
+
 
 
 if __name__ == "__main__":
