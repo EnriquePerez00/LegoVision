@@ -83,7 +83,7 @@ def estimate_color_predominant(crop_img, use_segmentation=False):
         img_rgb = np.array(crop_img.convert("RGB"))
 
         if use_segmentation:
-            mask = segment_crop(crop_img)
+            mask = segment_crop_sam(img_cen_full, [cx1, cy1, cx2, cy2])
             mask_fg = mask > 0
         else:
             # Usar todos los píxeles pero descartar fondo azul petróleo

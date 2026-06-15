@@ -1,4 +1,13 @@
 # -*- coding: utf-8 -*-
+"""Scene configuration constants for 2camaras_random_pieza_unica subproject.
+
+Dome Light + Cross-Polarization Setup (2026-06-13):
+  - Todas las luces direccionales eliminadas.
+  - Iluminación exclusivamente via World Background (Dome Light).
+  - WORLD_BG_STRENGTH = 1.5, WORLD_BG_COLOR = blanco puro (1,1,1,1).
+  - Piezas: Specular = 0.05, Roughness = 0.75 (cross-polarization simulada).
+  - Cinta: Specular = 0.0, Roughness = 1.0 (mate perfecto, sin reflejos).
+"""
 BU_PER_MM = 0.1
 LDRAW_TO_BU = 0.04
 LDRAW_THRESHOLD = 5.0
@@ -6,6 +15,11 @@ BELT_SURFACE_Z = 0.0
 BELT_WIDTH_BU = 20.0
 BELT_LENGTH_BU = 60.0
 BELT_THICKNESS_BU = 8.0
+# ╔══════════════════════════════════════════════════════════════════════════╗
+# ║  REGLA ESTRICTA: NO MODIFICAR BELT_COLOR_LINEAR, BELT_COLOR_HEX,         ║
+# ║                  BELT_COLOR_RGB_255. Estos valores son canónicos para    ║
+# ║                  la cinta y se usan en calibración de color CIELAB.      ║
+# ╚══════════════════════════════════════════════════════════════════════════╝
 BELT_COLOR_LINEAR = (0.145, 0.255, 0.33, 1.0)
 BELT_COLOR_HEX = "#254154"
 BELT_COLOR_RGB_255 = (37, 65, 84)
@@ -25,18 +39,33 @@ PHYSICS_FRAMES = 100
 PIECE_MASS_KG = 0.008
 PIECE_FRICTION = 0.95
 PIECE_RESTITUTION = 0.02
-# Iluminacion cenital principal (reducida para evitar hotspot central)
-TOP_LIGHT_SIZE = 22.0
-TOP_LIGHT_ENERGY = 250.0
-TOP_LIGHT_Z = 22.0
-# Luces de esquina: 4 luces de area en (+-8, +-8, 18) BU
-# Tamano 14 BU cubre el cuadrante 10x10 BU con 2 BU de solape -> iluminacion uniforme
-CORNER_LIGHT_OFFSET_XY = 8.0
-CORNER_LIGHT_Z = 18.0
-CORNER_LIGHT_SIZE = 14.0
-CORNER_LIGHT_ENERGY = 180.0
-WORLD_BG_STRENGTH = 0.1
-WORLD_BG_COLOR = (0.9, 0.9, 0.9, 1.0)
+
+# ═══════════════════════════════════════════════════════════════════════════
+# DOME LIGHT CONFIGURATION (Cross-Polarization Simulation)
+# ═══════════════════════════════════════════════════════════════════════════
+# Iluminación uniforme mediante World Background (Dome Light perfecto).
+# WORLD_BG_STRENGTH = 1.5 para iluminación uniforme del entorno.
+# WORLD_BG_COLOR = blanco puro (1.0, 1.0, 1.0, 1.0) para no contaminar
+# el espacio de color CIELAB de las piezas.
+WORLD_BG_STRENGTH = 1.1
+WORLD_BG_COLOR = (1.0, 1.0, 1.0, 1.0)
+
+# ═══════════════════════════════════════════════════════════════════════════
+# CROSS-POLARIZATION PARAMETERS (Simulated)
+# ═══════════════════════════════════════════════════════════════════════════
+# Para simular polarización cruzada en el material de las piezas LDraw:
+#   - PIECE_SPECULAR = 0.05 (elimina casi todo el brillo especular blanco)
+#   - PIECE_ROUGHNESS = 0.75 (difuso suave, como plástico ABS sin brillos)
+# Esto deja solo el color difuso (albedo) visible, ideal para Machine Vision.
+PIECE_SPECULAR = 0.05
+PIECE_ROUGHNESS = 0.75
+
+# Para la cinta transportadora (mate perfecto, sin reflejar Dome Light):
+#   - BELT_SPECULAR = 0.0 (sin reflejos especulares)
+#   - BELT_ROUGHNESS = 1.0 (superficie completamente mate)
+BELT_SPECULAR = 0.0
+BELT_ROUGHNESS = 1.0
+
 CYCLES_SAMPLES_DATASET = 4
 CYCLES_SAMPLES_REF = 48
 CYCLES_SAMPLES_FINAL = 64

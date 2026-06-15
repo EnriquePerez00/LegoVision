@@ -33,9 +33,9 @@ inferencia) usa la misma escena, definida una sola vez en
 | Cinta | Azul petróleo `(0.145,0.255,0.33)` linear, 20 × 120 × 1 cm |
 | Pantalla | Aluminio mate detrás (10 cm alto × 120 cm largo, x = -1 BU) |
 | Suelo | Gris claro PVC mate, 60 × 60 BU @ z=-0.5 BU |
-| Cám. cenital | (0, 0, 1.5) BU @ focal 27 mm sensor 36 mm |
+| Cám. cenital | (0, 0, 3.0) BU @ focal 55 mm sensor 36 mm (300 mm de altura) |
 | Cám. lateral | (1.5, 0, 0.25) BU @ focal 27 mm sensor 36 mm |
-| FOV cenital | 200 mm (px/mm = 3.2 a 640px, 1.92 a 384px) |
+| FOV cenital | 200 mm (px/mm = 3.2 a 640px, 1.92 a 384px, 10.24 a 2048px) |
 | Iluminación | `variant_V4_overhead_strip_high_ambient`: AREA RECT 0.6×0.3 BU @ z=0.5 BU, 0.6 W + world strength 0.6 |
 | Render engine | BLENDER_EEVEE |
 | Color management | View `Standard`, Look `None` |

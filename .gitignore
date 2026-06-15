@@ -73,6 +73,15 @@ scratch/
 backups/
 **/backups/
 
+# --- Imágenes: NUNCA subir PNGs/JPGs al repositorio ---
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.bmp
+*.tiff
+*.webp
+
 # --- Datos pesados regenerables (LDraw, datasets, renders) ---
 data/ldraw/
 data/raw_dataset/
@@ -155,10 +164,17 @@ data/iter*/
 **/random_position/
 
 # --- Reports generados ---
+**/report/
 **/reports/
+**/data/report/
 **/data/reports/
 **/_bricklink_cache/
 **/3dposes/
+**/*_report.html
+**/*_report.json
+piece_report_*.html
+**/piece_report_*.html
+*.bak_*
 
 # --- JSONs de evaluación/resultados generados ---
 eval_report*.json
@@ -201,6 +217,10 @@ yolov8l.pt
 mobile_sam.pt
 **/mobile_sam.pt
 
+# Excepción: Proteger y forzar el tracking de los modelos validados en la carpeta models/
+!models/
+!models/*.pt
+
 # --- Blender ---
 *.blend1
 *.blend2
@@ -214,3 +234,30 @@ docker-volumes/
 *.db
 *.sqlite
 *.sqlite3
+
+# --- Datasets de subproyectos (Regenerables) ---
+**/data/dinov2_refs_v*/
+**/data/dinov2_refs_*_canonical/
+**/data/yolo_pose_*/
+**/data/test*/
+**/data/camera_matrices_*.json
+**/data/color_calibration_*.json
+
+# --- Archivos de pruebas y validaciones ---
+**/test/sam_pipeline_e2e/refs_sam/
+**/refs_sam/
+# ============================================================
+#  2camaras_random_pieza_unica — Separación de dominios
+# ============================================================
+# Carpetas de datos generados masivos (renders, reports, logs)
+# pero preservar .gitkeep para mantener estructura de carpetas
+2camaras_random_pieza_unica/renders/
+!2camaras_random_pieza_unica/renders/.gitkeep
+2camaras_random_pieza_unica/reports/
+!2camaras_random_pieza_unica/reports/.gitkeep
+2camaras_random_pieza_unica/logs/
+!2camaras_random_pieza_unica/logs/.gitkeep
+
+# Excepción: si existe un subarchivo .gitkeep dentro de subdirs, preservarlo
+!2camaras_random_pieza_unica/renders/**/.gitkeep
+!2camaras_random_pieza_unica/reports/**/.gitkeep

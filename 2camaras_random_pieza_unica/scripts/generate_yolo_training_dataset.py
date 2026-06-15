@@ -2,15 +2,12 @@
 """2camaras_random_pieza_unica/scripts/generate_yolo_training_dataset.py
 Genera dataset YOLO para el setup `2camaras_random_pieza_unica` con:
 
-  - **38 refs unicas** del set 75078-1 (configuradas en cfg.pieces.selected_parts).
-  - **Color real del set** por (ref): cada (ref, color_hex) viene de
-    REAL_SETS["75078-1"] (no se asignan colores arbitrarios fuera del set).
-  - **Pose estable aleatoria** por frame (TARPS canonico).
-  - **Posicion XY aleatoria** dentro del FOV de AMBAS camaras (cenital + lateral)
-    con margen 5 mm via rejection sampling.
-  - **Rotacion Z aleatoria**.
-  - Distribucion balanceada: round-robin sobre las 42 combinaciones (ref, color)
-    del set, cada una con sus poses estables; el remanente se reparte aleatorio.
+  - Todas las refs unicas de TODA la BD (todos los sets en REAL_SETS).
+  - Color real de la BD por (ref): cada (ref, color_hex) viene de REAL_SETS (todos los sets).
+  - Pose estable aleatoria por frame (TARPS canonico).
+  - Posicion XY aleatoria dentro del FOV de AMBAS camaras (cenital + lateral).
+  - Rotacion Z aleatoria.
+  - Sin hardcoding a ningun set_id especifico.
 
 Uso:
     /opt/homebrew/bin/blender -b -P \\
@@ -81,8 +78,7 @@ log = get_logger("yolo")
 # ─────────────────────────────────────────────────────────────────
 # Constants
 # ─────────────────────────────────────────────────────────────────
-SET_ID = "75078-1"
-SELECTED_PARTS = cfg.pieces.selected_parts
+# Sin hardcoding: se usa toda la BD dinamicamente desde REAL_SETS
 RENDER_RES = cfg.render.resolution.width
 HALF_FOV_BU = 10.0
 MARGIN_BU = 0.5
@@ -160,7 +156,7 @@ def build_scene():
     scene.render.film_transparent = False
     scene.render.resolution_x = RENDER_RES
     scene.render.resolution_y = RENDER_RES
-    cam_cenital = setup_camera("Cam_Cenital", (0.0, 0.0, 15.0))
+    cam_cenital = setup_camera("Cam_Cenital", (0.0, 0.0, 30.0))
     cam_lateral = setup_camera("Cam_Lateral", (15.0, 0.0, 2.5))
     return cam_cenital, cam_lateral
 
@@ -198,23 +194,25 @@ def filter_stable_poses(poses):
     return [best]
 
 
-def get_unique_ref_color_combinations(set_id):
-    """Devuelve dicts con todas las (ref, color_code, color_hex) unicas del set."""
+def get_unique_ref_color_combinations_all():
+    """Devuelve todas las (ref, color_code, color_hex) unicas de TODA la BD."""
     seen = set()
     combos = []
-    for p in REAL_SETS[set_id]["parts"]:
-        if p["ref"] not in SELECTED_PARTS:
-            continue
-        key = (p["ref"], p["color_code"])
-        if key in seen:
-            continue
-        seen.add(key)
-        combos.append({
-            "ref": p["ref"],
-            "color_code": p["color_code"],
-            "color_hex": p.get("color_hex", "#A0A5A9"),
-            "color_name": p.get("color_name", "Unknown"),
-        })
+    for set_id, set_data in REAL_SETS.items():
+        for p in set_data.get("parts", []):
+            ref = p.get("ref", "")
+            if not ref or "stk" in ref.lower() or ref.lower().startswith("sw") or ref.lower().startswith("fig"):
+                continue
+            key = (ref, str(p.get("color_code", "0")))
+            if key in seen:
+                continue
+            seen.add(key)
+            combos.append({
+                "ref": ref,
+                "color_code": str(p.get("color_code", "0")),
+                "color_hex": p.get("color_hex", "#A0A5A9"),
+                "color_name": p.get("color_name", "Unknown"),
+            })
     return combos
 
 
@@ -325,8 +323,8 @@ def main():
     with open(CACHE_PATH, "r", encoding="utf-8") as f:
         cache = json.load(f)
 
-    combos = get_unique_ref_color_combinations(SET_ID)
-    log.info(f"[plan] {len(combos)} combinaciones (ref, color) del set {SET_ID}")
+    combos = get_unique_ref_color_combinations_all()
+    log.info(f"[plan] {len(combos)} combinaciones (ref, color) de toda la BD")
     universe = build_universe(combos, cache)
     log.info(f"[plan] Universo (combo x pose): {len(universe)} items")
 
@@ -463,7 +461,7 @@ def main():
     meta_path = os.path.join(pa.output_dir, "dataset_metadata.json")
     with open(meta_path, "w", encoding="utf-8") as f:
         json.dump({
-            "set_id": SET_ID,
+            "set_id": "ALL",
             "camera": pa.camera,
             "total_frames_planned": pa.num_frames,
             "total_frames_saved": saved,

@@ -24,7 +24,7 @@ from training.index_synthetic_renders import (
 )
 from database import supabase_client
 
-CINTA_BG_RGB = (37, 65, 84)
+CINTA_BG_RGB = (128, 165, 185)
 
 def _build_clean_canvas(crop_img: Image.Image, canvas_size: int = 224, margin_px: int = 8, bg_color=CINTA_BG_RGB) -> Image.Image:
     w_p, h_p = crop_img.size
@@ -68,7 +68,12 @@ def _parse_and_load_cropped(p, regex, transform, metadata_lookup, cam_name):
                 max(0, int(cx1 * iw)), max(0, int(cy1 * ih)),
                 min(iw, int(cx2 * iw)), min(ih, int(cy2 * ih))
             ))
-            img_proc = _build_clean_canvas(crop_img)
+            
+            # --- Symmetric preprocessing (Option A) ---
+            from run_evaluation import segment_crop_sam, apply_sam_mask_to_crop
+            mask = segment_crop_sam(img, bbox)
+            crop_img_masked = apply_sam_mask_to_crop(crop_img, mask, bg_color=CINTA_BG_RGB)
+            img_proc = _build_clean_canvas(crop_img_masked)
         else:
             from training.index_synthetic_renders import preprocess_render
             img_proc = preprocess_render(img)

@@ -66,8 +66,14 @@ from _pose_utils import (
     apply_stable_pose,
 )
 from database.set_catalog import REAL_SETS
+try:
+    from _db_helpers import get_all_ref_color_combinations_from_db, get_unique_colors_from_db
+    USE_DB_DYNAMIC = True
+except ImportError:
+    print("[WARN] _db_helpers no disponible, usando REAL_SETS estático")
+    USE_DB_DYNAMIC = False
 
-SET_ID = "75078-1"
+SET_ID = "75078-1"  # Legacy fallback si USE_DB_DYNAMIC=False
 RENDER_RES = cfg.render.resolution.width
 # Escala 1 BU = 10 cm. FOV cenital con cam @ z=1.5 BU, focal 27 mm,
 # sensor 36 mm => half_FOV = 1.5 * (18/27) = 1.0 BU = 10 cm.
@@ -211,9 +217,9 @@ SCREEN_H_BU = 1.0   # 10 cm alto
 SCREEN_L_BU = 12.0  # 120 cm largo
 
 # Camaras (escala 1 BU = 10 cm):
-#   Cenital: (0, 0, 1.5) BU = (0, 0, 15 cm)
+#   Cenital: (0, 0, 3.0) BU = (0, 0, 30 cm)
 #   Lateral: (1.5, 0, 0.25) BU = (15 cm, 0, 2.5 cm sobre superficie cinta)
-CAM_CEN_LOC = (0.0, 0.0, 1.5)
+CAM_CEN_LOC = (0.0, 0.0, 3.0)
 CAM_LAT_LOC = (1.5, 0.0, 0.25)
 
 
@@ -501,7 +507,25 @@ def find_pose_by_index(poses, target_index):
 
 
 # ------------------------- Plan helpers -------------------------
-def get_unique_ref_color_combinations(set_id):
+def get_unique_ref_color_combinations(set_id=None):
+    """
+    Obtiene combos (ref, color_code, color_hex) disponibles.
+    
+    Si USE_DB_DYNAMIC=True: consulta BD directamente (ignora set_id).
+    Si USE_DB_DYNAMIC=False: usa REAL_SETS[set_id] como fallback.
+    """
+    if USE_DB_DYNAMIC:
+        try:
+            combos_db = get_all_ref_color_combinations_from_db()
+            if combos_db:
+                print(f"[infTestV2] Usando BD dinámica: {len(combos_db)} combos (todas las piezas con embeddings)")
+                return combos_db
+        except Exception as e:
+            print(f"[WARN] Error consultando BD: {e}, fallback a REAL_SETS")
+    
+    # Fallback: REAL_SETS estático
+    if set_id is None:
+        set_id = SET_ID
     seen, combos = set(), []
     for p in REAL_SETS[set_id]["parts"]:
         key = (p["ref"], p["color_code"])
@@ -519,9 +543,9 @@ def get_unique_ref_color_combinations(set_id):
 def filter_stable_poses(poses):
     if not poses: return []
     stable = [p for p in poses
-              if float(p.get("tipping_energy_ratio", 0.0)) >= TARPS_MIN_TIPPING]
+              if float(p.get("tipping_energy_ratio") or 0.0) >= TARPS_MIN_TIPPING]
     if stable: return stable
-    best = max(poses, key=lambda p: float(p.get("tipping_energy_ratio", 0.0)))
+    best = max(poses, key=lambda p: float(p.get("tipping_energy_ratio") or 0.0))
     return [best]
 
 

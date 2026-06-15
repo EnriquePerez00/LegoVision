@@ -141,7 +141,10 @@ def setup_camera(cam_name, location):
     track.track_axis = 'TRACK_NEGATIVE_Z'
     track.up_axis = 'UP_Y'
     cam.data.type = 'PERSP'
-    cam.data.lens = 27.0
+    if "Cenital" in cam_name:
+        cam.data.lens = 55.0
+    else:
+        cam.data.lens = 27.0
     cam.data.clip_start = 0.01
     cam.data.clip_end = 100.0
     return cam
@@ -185,103 +188,58 @@ def _set_light_blackbody(light_obj, temp_k=5500.0, energy_w=20.0):
 
 
 def setup_machine_vision_lighting():
-    """Setup industrial Domo Industrial (canonical desde 2026-09-06b).
+    """Setup Dome Light + Cross-Polarization (canonical desde 2026-06-13).
 
-    Reemplaza al setup `Ring + Bars` (61 W, world 0.05) que producia
-    renders demasiado oscuros. El nuevo "Domo Industrial" sigue las
-    especificaciones de `setup_lighting_only.py` (3 luces blancas
-    estandar, sin polarizador simulado, world gris neutro 0.4) pero
-    escaladas a Blender Units (1 BU = 0.1 m = 10 cm):
+    Dome Light perfecto usando exclusivamente el World Background:
+      - NO area lights, NO directional lights.
+      - WORLD_BG_STRENGTH = 1.5 (iluminación uniforme desde todas direcciones).
+      - WORLD_BG_COLOR = blanco puro (1,1,1,1) para no contaminar CIELAB.
 
-      1. Cenital  AREA SQUARE 4.0 BU (= 0.4 m) @ (0,0,2.5) BU
-                  apuntando -Z, energy=15 W.
-      2. Fill +Y  AREA RECT 3.0 x 1.0 BU @ (0,+1.5,0.5) BU
-                  apuntando al origen, energy=5 W.
-      3. Fill -Y  AREA RECT 3.0 x 1.0 BU @ (0,-1.5,0.5) BU
-                  apuntando al origen, energy=5 W.
+    Cross-Polarization simulada en los materiales:
+      - Piezas: Specular = 0.05, Roughness = 0.75 (en create_abs_plastic_material).
+      - Cinta: Specular = 0.0, Roughness = 1.0 (mate perfecto).
 
-    World: gris neutro (0.5,0.5,0.5) strength=0.4 para fill ambiental
-    suave que evita zonas en sombra colapsando a negro (problema
-    observado en 3023 Trans-Brown / Red con setup anterior).
+    Esto elimina los brillos especulares blancos del plástico ABS,
+    dejando solo el color difuso (albedo) visible, ideal para Machine Vision.
 
-    Color management: scene.view_settings.view_transform='Standard',
-    look='Medium Contrast'.
-
-    Energia total: 25 W. A pesar de ser menor que el setup anterior
-    (61 W), produce renders ~3-4x mas brillantes porque:
-      - Areas mucho mayores (luz difusa, no puntual)
-      - World strength 8x mayor (0.4 vs 0.05) -> fill ambiental fuerte
-      - specular_factor=1.0 (no polarizador) -> ABS reflecta normal
-      - View transform Standard (no Filmic) -> sin rolloff de altas
+    Color management: View=Standard, Look=None (fidelidad de color máxima).
     """
-    # Limpiar luces previas (incluidas las del setup anterior).
-    keep = {"Conveyor_Belt_Plane", "Camera_Target", "Side_Rail_L", "Side_Rail_R",
-            "Cam_Cenital", "Cam_Lateral", "Lab_Floor"}
+    # Importar parámetros desde scene_config
+    try:
+        from scene_config import WORLD_BG_STRENGTH, WORLD_BG_COLOR
+    except ImportError:
+        WORLD_BG_STRENGTH = 1.5
+        WORLD_BG_COLOR = (1.0, 1.0, 1.0, 1.0)
+
+    # Limpiar TODAS las luces previas (Dome Light no usa area lights).
     for o in list(bpy.context.scene.objects):
-        if o.type == 'LIGHT' and o.name not in keep:
+        if o.type == 'LIGHT':
             bpy.data.objects.remove(o, do_unlink=True)
-    # Eliminar data-blocks de luz huerfanos.
+    # Eliminar data-blocks de luz huérfanos.
     for ld in [l for l in bpy.data.lights if l.users == 0]:
         bpy.data.lights.remove(ld)
 
-    # World gris neutro con strength alto (fill ambiental).
+    # ══════════════════════════════════════════════════════════════════════
+    # DOME LIGHT via World Background
+    # ══════════════════════════════════════════════════════════════════════
     scene = bpy.context.scene
-    if scene.world:
-        scene.world.use_nodes = True
-        bg = scene.world.node_tree.nodes.get("Background")
-        if bg:
-            bg.inputs["Color"].default_value = (0.5, 0.5, 0.5, 1.0)
-            bg.inputs["Strength"].default_value = 0.4
+    if scene.world is None:
+        scene.world = bpy.data.worlds.new("World")
+    scene.world.use_nodes = True
+    bg = scene.world.node_tree.nodes.get("Background")
+    if bg:
+        # Blanco puro para no contaminar espacio de color CIELAB
+        bg.inputs["Color"].default_value = WORLD_BG_COLOR
+        # Strength alto para iluminación uniforme
+        bg.inputs["Strength"].default_value = float(WORLD_BG_STRENGTH)
 
-    # Color management para vision artificial: View=Standard, Look=Medium Contrast.
+    # Color management para vision artificial: View=Standard, Look=None
+    # (máxima fidelidad de color, sin transformaciones artísticas).
     scene.view_settings.view_transform = 'Standard'
     try:
-        scene.view_settings.look = 'Medium Contrast'
-    except TypeError:
-        # Algunos builds usan otro naming; fallback.
         scene.view_settings.look = 'None'
-
-    # ── 1. KEY LIGHT CENITAL (AREA / SQUARE) ────────────────────────────
-    bpy.ops.object.light_add(type='AREA', location=(0.0, 0.0, 2.5))
-    key = bpy.context.active_object
-    key.name = "Key_Cenital"
-    key.data.shape = 'SQUARE'
-    key.data.size = 4.0  # 0.4 m -> 4.0 BU
-    key.data.energy = 15.0
-    key.data.color = (1.0, 1.0, 1.0)
-    if hasattr(key.data, 'specular_factor'):
-        key.data.specular_factor = 1.0
-    # Apunta directamente hacia abajo (-Z global).
-    key.rotation_mode = 'XYZ'
-    key.rotation_euler = (0.0, 0.0, 0.0)
-
-    # ── 2. FILL LATERALES (AREA / RECTANGLE x 2) ────────────────────────
-    target = bpy.data.objects.get("Camera_Target")
-    if not target:
-        bpy.ops.object.empty_add(type='PLAIN_AXES', location=(0.0, 0.0, 0.0))
-        target = bpy.context.active_object
-        target.name = "Camera_Target"
-
-    fill_specs = [
-        ("Fill_Lateral_+Y", (0.0,  1.5, 0.5)),
-        ("Fill_Lateral_-Y", (0.0, -1.5, 0.5)),
-    ]
-    for fname, floc in fill_specs:
-        bpy.ops.object.light_add(type='AREA', location=floc)
-        fill = bpy.context.active_object
-        fill.name = fname
-        fill.data.shape = 'RECTANGLE'
-        fill.data.size = 3.0   # 0.3 m -> 3.0 BU (largo)
-        fill.data.size_y = 1.0 # 0.1 m -> 1.0 BU (ancho)
-        fill.data.energy = 5.0
-        fill.data.color = (1.0, 1.0, 1.0)
-        if hasattr(fill.data, 'specular_factor'):
-            fill.data.specular_factor = 1.0
-        # Apuntar al centro de la cinta (Camera_Target).
-        track = fill.constraints.new(type='TRACK_TO')
-        track.target = target
-        track.track_axis = 'TRACK_NEGATIVE_Z'
-        track.up_axis = 'UP_Y'
+    except TypeError:
+        pass
 
 
 # Alias retrocompatible: scripts existentes (generate_300_random_set,
@@ -314,6 +272,14 @@ def create_floor():
 
 
 def create_belt_collider():
+    """Crea la cinta transportadora con material mate (cross-polarization)."""
+    # Importar parámetros de cross-polarization desde scene_config
+    try:
+        from scene_config import BELT_SPECULAR, BELT_ROUGHNESS
+    except ImportError:
+        BELT_SPECULAR = 0.0
+        BELT_ROUGHNESS = 1.0
+
     if 'Conveyor_Belt_Plane' in bpy.data.objects:
         bpy.ops.object.select_all(action='DESELECT')
         bpy.data.objects['Conveyor_Belt_Plane'].select_set(True)
@@ -328,10 +294,17 @@ def create_belt_collider():
     if not mat:
         mat = bpy.data.materials.new('Belt_Material')
         mat.use_nodes = True
-        bsdf = mat.node_tree.nodes.get('Principled BSDF')
-        if bsdf:
-            bsdf.inputs['Base Color'].default_value = BELT_COLOR_LINEAR
-            bsdf.inputs['Roughness'].default_value = 0.5
+    bsdf = mat.node_tree.nodes.get('Principled BSDF')
+    if bsdf:
+        # Color azul petróleo canónico (NO modificar)
+        bsdf.inputs['Base Color'].default_value = BELT_COLOR_LINEAR
+        # Cross-polarization: mate perfecto para no reflejar Dome Light
+        bsdf.inputs['Roughness'].default_value = BELT_ROUGHNESS  # 1.0
+        # Specular = 0.0 (sin brillo especular)
+        if 'Specular IOR Level' in bsdf.inputs:
+            bsdf.inputs['Specular IOR Level'].default_value = BELT_SPECULAR  # 0.0
+        elif 'Specular' in bsdf.inputs:
+            bsdf.inputs['Specular'].default_value = BELT_SPECULAR  # 0.0
     belt.data.materials.clear()
     belt.data.materials.append(mat)
 
@@ -411,7 +384,7 @@ def build_scene():
     scene.render.resolution_x = RENDER_RES
     scene.render.resolution_y = RENDER_RES
 
-    cam_cenital = setup_camera("Cam_Cenital", (0.0, 0.0, 15.0))
+    cam_cenital = setup_camera("Cam_Cenital", (0.0, 0.0, 30.0))
     cam_lateral = setup_camera("Cam_Lateral", (15.0, 0.0, 2.5))
 
     return cam_cenital, cam_lateral
@@ -428,7 +401,8 @@ def main():
     parser.add_argument("--num_samples", type=int, default=100)
     parsed_args = parser.parse_known_args(args)[0]
 
-    output_dir = parsed_args.output_dir or os.path.join(project_root, "data", "test_dual")
+    # Default: renders/test/test_dual (separación de dominios)
+    output_dir = parsed_args.output_dir or os.path.join(project_root, "renders", "test", "test_dual")
     num_samples = parsed_args.num_samples
     os.makedirs(output_dir, exist_ok=True)
 

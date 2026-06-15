@@ -138,7 +138,7 @@ def build_scene():
     scene.render.resolution_x = RENDER_RES
     scene.render.resolution_y = RENDER_RES
     apply_eevee_optimizations(scene)
-    cam_cenital = setup_camera("Cam_Cenital", (0.0, 0.0, 15.0))
+    cam_cenital = setup_camera("Cam_Cenital", (0.0, 0.0, 30.0))
     cam_lateral = setup_camera("Cam_Lateral", (15.0, 0.0, 2.5))
     return cam_cenital, cam_lateral
 

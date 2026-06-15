@@ -93,9 +93,22 @@ def setup_physics_world():
     rb_world.time_scale = 1.0
 
 def create_conveyor_belt_collider():
-    """Crea el plano que actúa como la superficie de la cinta transportadora."""
+    """Crea el plano que actúa como la superficie de la cinta transportadora.
+    
+    Cross-Polarization (2026-06-13):
+      Material de la cinta con Specular=0.0 y Roughness=1.0 (mate perfecto)
+      para no reflejar el Dome Light hacia las cámaras.
+    """
     if not IN_BLENDER:
         return None
+    
+    # Importar parámetros de cross-polarization desde scene_config
+    try:
+        from scene_config import BELT_SPECULAR, BELT_ROUGHNESS, BELT_COLOR_LINEAR
+    except ImportError:
+        BELT_SPECULAR = 0.0
+        BELT_ROUGHNESS = 1.0
+        BELT_COLOR_LINEAR = (0.145, 0.255, 0.33, 1.0)
         
     # Eliminar plano anterior si existe
     if "Conveyor_Belt_Plane" in bpy.data.objects:
@@ -116,18 +129,25 @@ def create_conveyor_belt_collider():
     plane.rigid_body.restitution = 0.1    # Bajo rebote para estabilidad
     plane.rigid_body.kinematic = True      # Permitir que la animación de la cinta afecte a las físicas
     
-    # Configurar el material de la cinta a Azul Petróleo Claro (Hex #254154 / RGB: 0.145, 0.255, 0.33)
+    # Configurar el material de la cinta a Azul Petróleo Claro con cross-polarization
     plane.is_shadow_catcher = True
     mat_name = "Light_Petrol_Blue_Belt"
     mat = bpy.data.materials.get(mat_name)
     if not mat:
         mat = bpy.data.materials.new(name=mat_name)
         mat.use_nodes = True
-        nodes = mat.node_tree.nodes
-        principled = nodes.get("Principled BSDF")
-        if principled:
-            principled.inputs['Base Color'].default_value = (0.145, 0.255, 0.33, 1.0)
-            principled.inputs['Roughness'].default_value = 0.5
+    nodes = mat.node_tree.nodes
+    principled = nodes.get("Principled BSDF")
+    if principled:
+        # Color azul petróleo canónico (NO modificar para CIELAB)
+        principled.inputs['Base Color'].default_value = BELT_COLOR_LINEAR
+        # Cross-polarization: mate perfecto para no reflejar Dome Light
+        principled.inputs['Roughness'].default_value = BELT_ROUGHNESS  # 1.0
+        # Specular = 0.0 (sin brillo especular)
+        if 'Specular IOR Level' in principled.inputs:
+            principled.inputs['Specular IOR Level'].default_value = BELT_SPECULAR  # 0.0
+        elif 'Specular' in principled.inputs:
+            principled.inputs['Specular'].default_value = BELT_SPECULAR  # 0.0
     plane.data.materials.clear()
     plane.data.materials.append(mat)
     
@@ -391,7 +411,13 @@ def _build_translucent_lego_material(mat, rgba):
         n_principled, ("Transmission Weight", "Transmission"), 1.0
     )
     _set_principled_input(n_principled, ("IOR",), 1.58)
-    # Metallic 0, Specular default. Aseguramos Alpha=1 (no usamos alpha-blend).
+    # Metallic 0, Specular PIECE_SPECULAR (cross-polarization), Subsurface Scattering enabled, Alpha=1
+    try:
+        from scene_config import PIECE_SPECULAR
+    except ImportError:
+        PIECE_SPECULAR = 0.05
+    _set_principled_input(n_principled, ("Specular", "Specular IOR Level"), PIECE_SPECULAR)
+    _set_principled_input(n_principled, ("Subsurface", "Subsurface Weight"), 0.2)
     _set_principled_input(n_principled, ("Metallic",), 0.0)
     _set_principled_input(n_principled, ("Alpha",), 1.0)
 
@@ -471,9 +497,25 @@ def load_color_catalog():
     return COLOR_CATALOG
 
 def create_abs_plastic_material(color_value):
-    """Crea un material fotorrealista basado en el catálogo de colores de Studio (sólido, transparente, metálico, goma)."""
+    """Crea un material fotorrealista basado en el catálogo de colores de Studio.
+    
+    Cross-Polarization Simulation (2026-06-13):
+      Para plásticos sólidos, se aplica Specular=0.05 y Roughness=0.75 para
+      simular polarización cruzada, eliminando los brillos especulares blancos
+      y dejando solo el color difuso (albedo). Esto mejora la precisión del
+      color en el espacio CIELAB para Machine Vision.
+    
+    Tipos de material soportados: solid, transparent, metallic, rubber.
+    """
     if not IN_BLENDER:
         return None
+    
+    # Importar parámetros de cross-polarization desde scene_config
+    try:
+        from scene_config import PIECE_SPECULAR, PIECE_ROUGHNESS
+    except ImportError:
+        PIECE_SPECULAR = 0.05
+        PIECE_ROUGHNESS = 0.75
         
     catalog = load_color_catalog()
     
@@ -530,51 +572,57 @@ def create_abs_plastic_material(color_value):
     node_principled = nodes.new(type='ShaderNodeBsdfPrincipled')
     node_principled.location = (0, 0)
 
-    # Valores de material por defecto (Solid)
+    # ══════════════════════════════════════════════════════════════════════
+    # CROSS-POLARIZATION SIMULATION
+    # ══════════════════════════════════════════════════════════════════════
+    # Valores por defecto con cross-polarization para plástico ABS sólido:
+    #   - Specular = 0.05 (casi sin brillo especular blanco)
+    #   - Roughness = 0.75 (difuso suave, mate)
+    # Esto simula el efecto de polarizadores cruzados en fotografía industrial.
     metallic = 0.0
-    roughness = 0.15
+    roughness = PIECE_ROUGHNESS  # 0.75 por defecto (cross-polarization)
+    specular = PIECE_SPECULAR    # 0.05 por defecto (cross-polarization)
     transmission = 0.0
-    subsurface = 0.08
+    subsurface = 0.0  # Desactivado para mejor fidelidad de color
     
     # Si tenemos definición detallada del catálogo, configurar según tipo
     if color_def:
         mat_type = color_def.get("material_type", "solid")
-        alpha = color_def.get("alpha", 1.0)
 
         if mat_type == "metallic":
-            # Metalizado / Cromo
+            # Metalizado / Cromo - mantiene brillo especular
             metallic = 1.0
             roughness = 0.2
-            transmission = 0.0
-            subsurface = 0.0
+            specular = 0.5  # Metálicos mantienen specular
         elif mat_type == "rubber":
-            # Goma / Mate
+            # Goma / Mate - aún más difuso
             metallic = 0.0
-            roughness = 0.8
-            transmission = 0.0
-            subsurface = 0.0
+            roughness = 0.95  # Más mate que plástico normal
+            specular = 0.0    # Sin specular para goma
             
     # Configurar entradas del Principled BSDF
     node_principled.inputs['Base Color'].default_value = rgba
     node_principled.inputs['Roughness'].default_value = roughness
     
+    # Configurar Specular (cross-polarization)
+    # El nombre del input varía según versión de Blender
+    if 'Specular IOR Level' in node_principled.inputs:
+        node_principled.inputs['Specular IOR Level'].default_value = specular
+    elif 'Specular' in node_principled.inputs:
+        node_principled.inputs['Specular'].default_value = specular
+    
     # Configurar metálico
     if 'Metallic' in node_principled.inputs:
         node_principled.inputs['Metallic'].default_value = metallic
         
-    # Configurar transmisión (vidrio/cristal)
+    # Configurar transmisión (vidrio/cristal) - 0 para sólidos
     if 'Transmission Weight' in node_principled.inputs:
         node_principled.inputs['Transmission Weight'].default_value = transmission
     elif 'Transmission' in node_principled.inputs:
         node_principled.inputs['Transmission'].default_value = transmission
         
-    # SSS (Subsurface Scattering) para plásticos sólidos
-    if transmission == 0.0 and subsurface > 0.0:
-        if 'Subsurface Weight' in node_principled.inputs:
-            node_principled.inputs['Subsurface Weight'].default_value = subsurface
-            node_principled.inputs['Subsurface Radius'].default_value = (0.1, 0.05, 0.05)
-        elif 'Subsurface' in node_principled.inputs:
-            node_principled.inputs['Subsurface'].default_value = subsurface
+    # SSS desactivado para mejor fidelidad de color en cross-polarization
+    # (el SSS difumina el color y reduce la precisión CIELAB)
             
     node_output = nodes.new(type='ShaderNodeOutputMaterial')
     node_output.location = (300, 0)

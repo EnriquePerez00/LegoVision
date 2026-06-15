@@ -25,7 +25,7 @@ epochs_without_improvement = 0
 
 
 def on_fit_epoch_end(trainer):
-    global RUN_ID, best_map50, epochs_without_improvement
+    global best_map50, epochs_without_improvement
     if not RUN_ID:
         return
     epoch = trainer.epoch + 1

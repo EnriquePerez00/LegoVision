@@ -46,21 +46,39 @@ from database import supabase_client
 PREPROC_WORKERS = 8
 DEFAULT_BATCH_SIZE = 128
 
-# COLOR HEX → LDraw color code mapping
-COLOR_HEX_TO_CODE = {
-    "A0A5A9": "85",  # Light Bluish Gray
-    "1B1B1B": "0",   # Black
-    "C91A09": "4",   # Red
-    "5A5A5A": "8",   # Dark Gray
-    "808080": "8",   # Gray
-    "F2CD37": "14",  # Yellow
-    "899395": "8",   # Dark Bluish Gray
-    "720012": "4",   # Dark Red
-    "DFD1A5": "15",  # White
-    "0A3C9F": "1",   # Blue
-    "FE8A18": "25",  # Orange
+# COLOR HEX → BrickLink color code mapping (loaded dynamically from color_catalog.json)
+COLOR_HEX_TO_CODE = {}
+_project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_catalog_path = os.path.join(_project_root, "database", "color_catalog.json")
+if os.path.exists(_catalog_path):
+    try:
+        with open(_catalog_path, "r", encoding="utf-8") as _f:
+            _catalog_data = json.load(_f)
+        for _bl_code, _info in _catalog_data.items():
+            _hex = _info.get("hex", "").lstrip("#").upper()
+            if _hex:
+                COLOR_HEX_TO_CODE[_hex] = _bl_code
+    except Exception as _e:
+        print(f"[Warning] Failed to dynamically load COLOR_HEX_TO_CODE: {_e}")
+
+# Fallback/merge default mappings to ensure basic compatibility
+_defaults = {
+    "A0A5A9": "86",  # Light Bluish Gray
+    "1B1B1B": "11",  # Black
+    "C91A09": "5",   # Red
+    "5A5A5A": "85",  # Dark Bluish Gray
+    "808080": "0",   # Various
+    "F2CD37": "3",   # Yellow
+    "899395": "297", # Flat Silver
+    "720012": "59",  # Dark Red
+    "DFD1A5": "2",   # Tan
+    "0A3C9F": "7",   # Blue
+    "FE8A18": "4",   # Orange
     "254154": "85",  # Petrol (background)
 }
+for _hex, _code in _defaults.items():
+    if _hex not in COLOR_HEX_TO_CODE:
+        COLOR_HEX_TO_CODE[_hex] = _code
 
 
 def get_device():

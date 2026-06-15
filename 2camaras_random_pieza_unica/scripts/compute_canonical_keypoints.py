@@ -1,39 +1,10 @@
 # -*- coding: utf-8 -*-
-"""2camaras_random_pieza_unica/scripts/compute_canonical_keypoints.py
-=====================================================================
-Genera el archivo `data/canonical_keypoints.json` con 9 keypoints
-por cada `ref` del set 75078-1, en frame canonico LDraw (BU = 10 cm).
-
-Los 9 keypoints son las 8 esquinas del AABB del mesh + el centroide:
-
-    KP_0..3 = bottom (Z = -h/2)   (BL, BR, FR, FL)
-    KP_4..7 = top    (Z = +h/2)   (BL, BR, FR, FL)
-    KP_8    = centroide           (0, 0, 0)
-
-Las dimensiones se leen de `cfg.pieces.dimensions_mm[ref]` =
-(L_mm, W_mm, H_mm) y se convierten a BU dividiendo por 100
-(1 BU = 10 cm, 1 mm = 0.01 BU). En el frame canonico de la pieza
-(post-`normalize_piece`) los ejes son:
-    X = largo  L
-    Y = ancho  W
-    Z = alto   H
-
-NOTA: El frame canonico LDraw de algunas piezas tiene Y como vertical
-en lugar de Z (el simulador de poses lo refleja en `contact_normal`).
-Por simplicidad asumimos que en el frame post-`normalize_piece`
-las dimensiones se mapean (L, W, H) -> (X, Y, Z). El bug residual
-de orientacion lo asume el caller cuando aplica `apply_stable_pose`
-(que rota la pieza para que `contact_normal` apunte a -Z; los KP se
-transforman con la misma matriz mundo).
-
-Uso:
-  .venv/bin/python 2camaras_random_pieza_unica/scripts/compute_canonical_keypoints.py
+"""compute_canonical_keypoints.py
+Genera canonical_keypoints.json para TODAS las refs de la BD (todos los sets),
+sin hardcoding a ningun set especifico.
 """
 from __future__ import annotations
-
-import json
-import os
-import sys
+import json, os, sys
 
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 legovic_root = os.path.dirname(project_root)
@@ -41,44 +12,39 @@ sys.path.insert(0, legovic_root)
 sys.path.insert(0, project_root)
 
 from config_loader import cfg
+from database.set_catalog import REAL_SETS
 
-
-MM_TO_BU = 0.01  # 1 mm = 0.01 BU (1 BU = 10 cm = 100 mm)
+MM_TO_BU = 0.01
 OUTPUT_PATH = os.path.join(project_root, "data", "canonical_keypoints.json")
 
 
 def aabb_to_keypoints(L_mm, W_mm, H_mm):
-    """Devuelve 9 keypoints en BU para un AABB centrado en (0,0,0).
-
-    Orden:
-      0: bottom_back_left   (-L/2, -W/2, -H/2)
-      1: bottom_back_right  (+L/2, -W/2, -H/2)
-      2: bottom_front_right (+L/2, +W/2, -H/2)
-      3: bottom_front_left  (-L/2, +W/2, -H/2)
-      4: top_back_left      (-L/2, -W/2, +H/2)
-      5: top_back_right     (+L/2, -W/2, +H/2)
-      6: top_front_right    (+L/2, +W/2, +H/2)
-      7: top_front_left     (-L/2, +W/2, +H/2)
-      8: centroid           (0, 0, 0)
-    """
     Lx = L_mm * MM_TO_BU * 0.5
     Wy = W_mm * MM_TO_BU * 0.5
     Hz = H_mm * MM_TO_BU * 0.5
     return [
-        [-Lx, -Wy, -Hz],  # 0
-        [+Lx, -Wy, -Hz],  # 1
-        [+Lx, +Wy, -Hz],  # 2
-        [-Lx, +Wy, -Hz],  # 3
-        [-Lx, -Wy, +Hz],  # 4
-        [+Lx, -Wy, +Hz],  # 5
-        [+Lx, +Wy, +Hz],  # 6
-        [-Lx, +Wy, +Hz],  # 7
-        [ 0.0,  0.0,  0.0],  # 8
+        [-Lx, -Wy, -Hz], [+Lx, -Wy, -Hz], [+Lx, +Wy, -Hz], [-Lx, +Wy, -Hz],
+        [-Lx, -Wy, +Hz], [+Lx, -Wy, +Hz], [+Lx, +Wy, +Hz], [-Lx, +Wy, +Hz],
+        [0.0, 0.0, 0.0],
     ]
 
 
+def get_all_refs_from_bd():
+    """Todas las refs unicas de toda la BD (sin stickers/minifigs)."""
+    refs = set()
+    for set_id, set_data in REAL_SETS.items():
+        for p in set_data.get("parts", []):
+            ref = p.get("ref", "")
+            if not ref:
+                continue
+            if "stk" in ref.lower() or ref.lower().startswith("sw") or ref.lower().startswith("fig"):
+                continue
+            refs.add(ref)
+    return sorted(refs)
+
+
 def main():
-    refs = list(cfg.pieces.selected_parts)
+    refs = get_all_refs_from_bd()
     dims_cfg = cfg.pieces.dimensions_mm
 
     out = {
@@ -107,12 +73,13 @@ def main():
             "keypoints_bu": aabb_to_keypoints(L, W, H),
         }
     if missing:
-        print(f"[WARN] {len(missing)} refs sin dimensions_mm: {missing}")
+        print(f"[WARN] {len(missing)} refs sin dimensions_mm (omitidas): {missing[:10]}{'...' if len(missing)>10 else ''}")
 
     os.makedirs(os.path.dirname(OUTPUT_PATH), exist_ok=True)
     with open(OUTPUT_PATH, "w", encoding="utf-8") as f:
         json.dump(out, f, indent=2)
     print(f"[OK] {len(out['pieces'])} refs escritas en {OUTPUT_PATH}")
+    print(f"     Total BD: {len(refs)} | Con dims: {len(out['pieces'])} | Sin dims: {len(missing)}")
 
 
 if __name__ == "__main__":
