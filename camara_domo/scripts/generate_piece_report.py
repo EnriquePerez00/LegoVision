@@ -250,8 +250,10 @@ def find_training_ref_file(ref_dir, cam_name, ref, pose_idx):
 
 def render_html(ref, color_code, samples, data_dir, meta_lookup, training_metadata=None, ref_dir=None):
     n = len(samples)
-    n_correct = sum(1 for s in samples if s.get("model_match"))
-    accuracy = (n_correct / n * 100.0) if n else 0.0
+    n_correct_eff = sum(1 for s in samples if s.get("model_match"))
+    n_correct_param = sum(1 for s in samples if s.get("model_match_param"))
+    accuracy_eff = (n_correct_eff / n * 100.0) if n else 0.0
+    accuracy_param = (n_correct_param / n * 100.0) if n else 0.0
     n_color_cen_ok = sum(1 for s in samples if s.get("color_match_cenital") is True)
     n_color_lat_ok = sum(1 for s in samples if s.get("color_match_lateral") is True)
     surf_errs = [abs(s.get("surface_error_rel_pct"))
@@ -298,7 +300,8 @@ def render_html(ref, color_code, samples, data_dir, meta_lookup, training_metada
         return f"<div class='metric'><div class='k'>{k}</div><div class='v'>{v}</div></div>"
 
     parts.append(_m("Samples", n))
-    parts.append(_m("Modelo accuracy", f"{n_correct}/{n} ({accuracy:.1f}%)"))
+    parts.append(_m("Acc Paramétrica", f"{n_correct_param}/{n} ({accuracy_param:.1f}%)"))
+    parts.append(_m("Acc EfficientNet", f"{n_correct_eff}/{n} ({accuracy_eff:.1f}%)"))
     parts.append(_m("Color cenital OK",
                     f"{n_color_cen_ok}/{n} ({100.0*n_color_cen_ok/max(n,1):.1f}%)"))
     parts.append(_m("Color lateral OK",
@@ -314,11 +317,16 @@ def render_html(ref, color_code, samples, data_dir, meta_lookup, training_metada
     parts.append("<h2>Samples</h2>")
     for s in samples:
         sample_idx = s.get("sample_index", s.get("index"))
-        ref_pred = s.get("ref_inferred")
-        ok_model = s.get("model_match")
+        ref_pred_eff = s.get("ref_inferred")
+        ref_pred_param = s.get("ref_inferred_param")
+        ok_model_eff = s.get("model_match")
+        ok_model_param = s.get("model_match_param")
         score = s.get("consensus_score")
-        gt_cls = "ok" if ok_model else "ko"
-        gt_status = "✓" if ok_model else "✗"
+        
+        gt_cls_eff = "ok" if ok_model_eff else "ko"
+        gt_status_eff = "✓" if ok_model_eff else "✗"
+        gt_cls_param = "ok" if ok_model_param else "ko"
+        gt_status_param = "✓" if ok_model_param else "✗"
 
         cen_file = s.get("cenital_file")
         lat_file = s.get("lateral_file")
@@ -331,8 +339,9 @@ def render_html(ref, color_code, samples, data_dir, meta_lookup, training_metada
         parts.append("<div class='sample'>")
         parts.append(
             f"<h3>Sample {sample_idx} — GT={ref} pose={s.get('pose_index_gt')} "
-            f"face={s.get('face_class_gt')} | Pred=<span class='{gt_cls}'>{ref_pred}</span> "
-            f"{gt_status} score={score}</h3>"
+            f"face={s.get('face_class_gt')} | "
+            f"Param=<span class='{gt_cls_param}'>{ref_pred_param}</span> {gt_status_param} | "
+            f"EffNet=<span class='{gt_cls_eff}'>{ref_pred_eff}</span> {gt_status_eff} score={score}</h3>"
         )
 
         cen_img = None; lat_img = None
@@ -572,6 +581,29 @@ def main():
         ref_dir = os.path.join(pa.data_dir, "..", "dinov2_refs_v3_canonical")
     training_metadata = load_training_metadata(ref_dir)
     print(f"[piece_report] Loaded {len(training_metadata)} training metadata entries from {ref_dir}")
+
+    print("Cargando DB para inferencia paramétrica on-the-fly...")
+    from scripts.inferencia_neuronal import load_db_universe, match_piece_hypothesis
+    poses_db, colors_db = load_db_universe(None)
+    for s in eval_results:
+        color_name = s.get("color_name_cen")
+        color_model_best = next((c for c in colors_db if c.color_name == color_name), colors_db[0] if colors_db else None)
+        area_cen_est = s.get("apparent_area_mm2", 0.0)
+        area_lat_est = s.get("apparent_area_lat_mm2", 0.0)
+        height_est = s.get("measured_height_mm", 0.0)
+        
+        candidates = match_piece_hypothesis(
+            poses_db=poses_db,
+            color_inferido=color_model_best,
+            area_cen_est=area_cen_est,
+            area_lat_est=area_lat_est,
+            height_est=height_est,
+            studs_est=0,
+            height_is_fallback=True
+        )
+        candidates.sort(key=lambda x: x[2])
+        s["ref_inferred_param"] = candidates[0][0] if candidates else "Unknown"
+        s["model_match_param"] = (s["ref_inferred_param"] == s.get("ref_gt"))
 
     targets = []  # list of (ref, color_code)
     if pa.pieces:

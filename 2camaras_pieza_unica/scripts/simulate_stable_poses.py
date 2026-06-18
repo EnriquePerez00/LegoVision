@@ -297,21 +297,15 @@ def analyze_part(part_ref, belt, n_dirs, debug=False):
     return {"part_ref": part_ref, "n_poses": len(deduped), "stable_poses": deduped}
 
 
-def save_to_db(part_ref, stable_poses, set_id=None):
+def save_to_db(part_ref, stable_poses):
     """Guarda en BD (PostgreSQL local vía psycopg2). Borra previas y reinserta."""
     try:
         from supabase_client import get_connection
         with get_connection() as conn, conn.cursor() as cur:
-            # Borrar poses previas para esta pieza (en este set si se indica)
-            if set_id:
-                cur.execute(
-                    "DELETE FROM stable_poses WHERE part_ref = %s AND set_id = %s",
-                    (part_ref, set_id),
-                )
-            else:
-                cur.execute(
-                    "DELETE FROM stable_poses WHERE part_ref = %s", (part_ref,)
-                )
+            # Borrar poses previas para esta pieza
+            cur.execute(
+                "DELETE FROM stable_poses WHERE part_ref = %s", (part_ref,)
+            )
             for pose in stable_poses:
                 cur.execute(
                     """
@@ -319,8 +313,8 @@ def save_to_db(part_ref, stable_poses, set_id=None):
                         (part_ref, pose_index, contact_normal, face_class,
                          contact_area, orientation_quat, orientation_euler,
                          simulation_passes, simulation_total, stability_ratio,
-                         is_stable, set_id)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                         is_stable)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     """,
                     (
                         part_ref,
@@ -334,43 +328,24 @@ def save_to_db(part_ref, stable_poses, set_id=None):
                         pose["total"],
                         pose["stability_ratio"],
                         bool(pose.get("is_stable", True)),
-                        set_id,
                     ),
                 )
             # Recalcular stability_ratio_normalized para esta pieza
-            if set_id:
-                cur.execute(
-                    """
-                    WITH max_sr AS (
-                        SELECT GREATEST(MAX(stability_ratio), 1e-6) AS m
-                        FROM stable_poses
-                        WHERE part_ref = %s AND COALESCE(set_id,'') = %s
-                    )
-                    UPDATE stable_poses sp
-                    SET stability_ratio_normalized =
-                        CASE WHEN sp.stability_ratio IS NULL THEN NULL
-                             ELSE sp.stability_ratio / (SELECT m FROM max_sr)
-                        END
-                    WHERE sp.part_ref = %s AND COALESCE(sp.set_id,'') = %s
-                    """,
-                    (part_ref, set_id, part_ref, set_id),
+            cur.execute(
+                """
+                WITH max_sr AS (
+                    SELECT GREATEST(MAX(stability_ratio), 1e-6) AS m
+                    FROM stable_poses WHERE part_ref = %s
                 )
-            else:
-                cur.execute(
-                    """
-                    WITH max_sr AS (
-                        SELECT GREATEST(MAX(stability_ratio), 1e-6) AS m
-                        FROM stable_poses WHERE part_ref = %s
-                    )
-                    UPDATE stable_poses sp
-                    SET stability_ratio_normalized =
-                        CASE WHEN sp.stability_ratio IS NULL THEN NULL
-                             ELSE sp.stability_ratio / (SELECT m FROM max_sr)
-                        END
-                    WHERE sp.part_ref = %s
-                    """,
-                    (part_ref, part_ref),
-                )
+                UPDATE stable_poses sp
+                SET stability_ratio_normalized =
+                    CASE WHEN sp.stability_ratio IS NULL THEN NULL
+                         ELSE sp.stability_ratio / (SELECT m FROM max_sr)
+                    END
+                WHERE sp.part_ref = %s
+                """,
+                (part_ref, part_ref),
+            )
         print("  [DB] " + part_ref + ": " + str(len(stable_poses)) + " poses guardadas")
     except Exception as e:
         print("  [DB WARN] " + part_ref + ": " + str(e))
@@ -418,7 +393,7 @@ def main():
         r = analyze_part(ref, belt, args.n_dirs, debug=args.debug)
         results.append(r)
         if args.save_db and r.get("stable_poses") is not None:
-            save_to_db(ref, r["stable_poses"], set_id=args.set_id)
+            save_to_db(ref, r["stable_poses"])
     out = args.output or os.path.join(project_root, "data", "tmp",
         "stable_poses_sim_" + args.set_id.replace("-", "") + ".json")
     os.makedirs(os.path.dirname(out), exist_ok=True)

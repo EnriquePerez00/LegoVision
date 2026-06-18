@@ -29,6 +29,7 @@ from logger import get_logger, log_execution_header, log_execution_footer
 log = get_logger("pipeline")
 
 from database.set_catalog import REAL_SETS
+from scripts.efficientnet_classifier import LegoEfficientNetClassifier
 
 # Cargar configuración de activación de cámara lateral
 USE_LATERAL_CAMERA = getattr(cfg.inference, "camara_lateral", False)
@@ -154,7 +155,8 @@ def _bbox_centroid_xy_mm(bbox_norm, img_res_px):
     center_px = img_res_px * 0.5
     dx_px = cx_px - center_px
     dy_px = cy_px - center_px
-    return dx_px / PX_PER_MM_NOMINAL, dy_px / PX_PER_MM_NOMINAL
+    px_per_mm = PX_PER_MM_NOMINAL * (img_res_px / 2048.0)
+    return dx_px / px_per_mm, dy_px / px_per_mm
 
 def observe_zenithal_surface_mm2(mask_cen, bbox_cen_norm, measured_lateral_height_mm, img_res_px_val=2048):
     """Calcula el footprint real y el área aparente cenital de la pieza."""
@@ -165,15 +167,16 @@ def observe_zenithal_surface_mm2(mask_cen, bbox_cen_norm, measured_lateral_heigh
             "footprint_area_mm2": 0.0,
             "r_mm": 0.0,
             "z_eff_mm": 0.0,
-            "px_per_mm_local": PX_PER_MM_NOMINAL,
+            "px_per_mm_local": PX_PER_MM_NOMINAL * (img_res_px_val / 2048.0),
         }
 
+    px_per_mm_nominal_scaled = PX_PER_MM_NOMINAL * (img_res_px_val / 2048.0)
     dx_mm, dy_mm = _bbox_centroid_xy_mm(bbox_cen_norm, img_res_px_val)
     r_mm = math.sqrt(dx_mm * dx_mm + dy_mm * dy_mm)
     z_eff_mm = max(0.5, measured_lateral_height_mm * 0.5)
 
     d_floor = math.sqrt(r_mm * r_mm + CAM_CEN_Z_MM * CAM_CEN_Z_MM)
-    focal_px_dyn = PX_PER_MM_NOMINAL * CAM_CEN_Z_MM
+    focal_px_dyn = px_per_mm_nominal_scaled * CAM_CEN_Z_MM
     px_per_mm_floor = focal_px_dyn / d_floor
 
     area_apparent_floor_mm2 = num_pixels / (px_per_mm_floor ** 2)
@@ -225,14 +228,14 @@ def predict_apparent_zenith_area_mm2(nominal_footprint_mm2, nominal_height_mm, b
 
     return apparent_top + apparent_sides
 
-def measure_lateral_height_mm_sam(mask_lat):
+def measure_lateral_height_mm_sam(mask_lat, img_res_px_val=2048):
     """Estima altura lateral básica usando la caja delimitadora de SAM."""
     rows = np.any(mask_lat > 0, axis=1)
     if not np.any(rows):
         return 0.0
-    h_px = float(np.argmax(rows[::-1]) - np.argmax(rows) + len(rows)) # aproximación de altura vertical
-    # simplificación de escala lateral
-    return h_px / PX_PER_MM_LATERAL
+    h_px = float(len(rows) - np.argmax(rows[::-1]) - np.argmax(rows))
+    px_per_mm_lat_scaled = PX_PER_MM_LATERAL * (img_res_px_val / 2048.0)
+    return h_px / px_per_mm_lat_scaled
 
 # ── Database Helpers ──
 # Dimensiones reales de piezas LEGO
@@ -299,6 +302,9 @@ def run_evaluation(metadata_path, report_path):
     log.info("Cargando MobileSAM...")
     sam_model = SAM("mobile_sam.pt").to(device)
 
+    log.info("Cargando clasificador neuro-simbólico EfficientNetV2-B0...")
+    efficientnet_clf = LegoEfficientNetClassifier()
+
     results = []
     total_count = 0
     correct_count = 0
@@ -331,6 +337,7 @@ def run_evaluation(metadata_path, report_path):
                     "color_code": p["color_code"],
                     "frame_img_path": frame_img_path,
                     "bbox_norm": p["bbox_cenital_norm"],
+                    "bbox_frontal_norm": p.get("bbox_frontal_norm"),
                     "x_belt_local_mm": p["x_belt_local_mm"],
                     "y_belt_local_mm": p["y_belt_local_mm"],
                     "zenith_silhouette_area_gt": p.get("zenith_silhouette_area_gt"),
@@ -348,6 +355,10 @@ def run_evaluation(metadata_path, report_path):
                     "cenital": {
                         "image_path": best_obs["frame_img_path"],
                         "bbox_norm": best_obs["bbox_norm"]
+                    },
+                    "lateral": {
+                        "image_path": best_obs["frame_img_path"].replace(".png", "_frontal.png"),
+                        "bbox_norm": best_obs.get("bbox_frontal_norm")
                     }
                 },
                 "is_simulation": True,
@@ -428,7 +439,23 @@ def run_evaluation(metadata_path, report_path):
             # YOLO lateral
             yolo_res_lat = yolo_lat(img_lat, verbose=False, conf=0.25)
             if yolo_res_lat and len(yolo_res_lat[0].boxes) > 0:
-                box_lat = yolo_res_lat[0].boxes[0]
+                if entry.get("is_simulation") and "lateral" in entry["cameras"] and entry["cameras"]["lateral"].get("bbox_norm"):
+                    gt_bbox_lat = entry["cameras"]["lateral"]["bbox_norm"]
+                    best_box_lat = None
+                    best_iou_lat = 0.0
+                    for box in yolo_res_lat[0].boxes:
+                        det_bbox = box.xyxyn[0].cpu().numpy().tolist()
+                        iou = compute_iou(gt_bbox_lat, det_bbox)
+                        if iou > best_iou_lat:
+                            best_iou_lat = iou
+                            best_box_lat = box
+                    if best_box_lat is not None and best_iou_lat >= 0.1:
+                        box_lat = best_box_lat
+                    else:
+                        box_lat = yolo_res_lat[0].boxes[0]
+                else:
+                    box_lat = yolo_res_lat[0].boxes[0]
+
                 x1_l, y1_l, x2_l, y2_l = box_lat.xyxyn[0].cpu().numpy().tolist()
                 lat_yolo_conf = float(box_lat.conf[0].cpu().numpy())
 
@@ -440,7 +467,7 @@ def run_evaluation(metadata_path, report_path):
                 
                 if sam_res_lat and sam_res_lat[0].masks is not None:
                     mask_lat = sam_res_lat[0].masks.data[0].cpu().numpy().astype(np.uint8)
-                    measured_height = measure_lateral_height_mm_sam(mask_lat)
+                    measured_height = measure_lateral_height_mm_sam(mask_lat, img_res_px_val=w_l)
                 
                 # Intentar Triangulación Keypoints 3D
                 if HAS_KPTS_MODULE and yolo_cen_pose is not None and yolo_lat_pose is not None:
@@ -465,99 +492,53 @@ def run_evaluation(metadata_path, report_path):
         obs_apparent_area_mm2 = zen_obs["apparent_area_mm2"]
         obs_footprint_area_mm2 = zen_obs["footprint_area_mm2"]
 
-        # --- 6. Fase 1: Gating de Color (Cenital) ---
-        valid_by_color = []
-        for ref_code, set_data in REAL_SETS.items():
-            for p in set_data.get("parts", []):
-                ref = p["ref"]
-                cc = str(p.get("color_code", ""))
-                if cc == color_code_cen:
-                    valid_by_color.append(ref)
-        valid_by_color = list(set(valid_by_color))
-
-        if not valid_by_color:
-            # Fallback a todo el universo si falla el color
-            for ref_code, set_data in REAL_SETS.items():
-                for p in set_data.get("parts", []):
-                    valid_by_color.append(p["ref"])
-            valid_by_color = list(set(valid_by_color))
-
-        # --- 7. Fase 2: Surface Gating y Clasificación (Gaussian Size Scoring) ---
-        valid_by_surface = []
-        surface_scores = {}
+        # --- 6. Inferencia Neuro-Simbólica con EfficientNetV2-B0 ---
+        # Tight crop cenital using SAM mask and black background masking
+        img_cen_np = np.array(img_cen.convert("RGB"))
+        img_cen_np[mask_cen == 0] = [0, 0, 0]
+        img_cen_masked = Image.fromarray(img_cen_np)
         
-        hybrid_thresh = float(cfg.inference.size_scoring.hybrid_threshold_mm2)
-        abs_tol = float(cfg.inference.size_scoring.abs_tolerance_mm2)
-        rel_tol = float(cfg.inference.size_scoring.rel_tolerance_pct)
-
-        for ref in valid_by_color:
-            dims = get_part_dimensions(ref)
-            L, W, H = sorted(dims, reverse=True)
-            configs = [(L * W, H), (L * H, W), (W * H, L)]
-
-            # Filling factor aproximado
-            filling_factor = 1.0
-            if ref in ["6141", "98138", "4032", "3062", "59900"]:
-                filling_factor = 0.785
-            elif ref == "2420":
-                filling_factor = 0.75
-            elif ref in ["3039", "3298", "3037", "3665", "85984", "54200", "11477", "15068"]:
-                filling_factor = 0.85
-            elif ref in ["2412", "2877"]:
-                filling_factor = 0.92
-
-            best_score = 0.0
-            is_candidate_valid = False
-            
-            for nom_area, nom_h in configs:
-                nom_footprint = nom_area * filling_factor
-                target_apparent = predict_apparent_zenith_area_mm2(
-                    nom_footprint, nom_h, [x1_c, y1_c, x2_c, y2_c], img_res_px_val=w_c
-                )
-                
-                residual = abs(obs_apparent_area_mm2 - target_apparent)
-                if target_apparent <= hybrid_thresh:
-                    metric_valid = (residual <= abs_tol)
-                else:
-                    rel_err = (residual / target_apparent) * 100.0 if target_apparent > 0 else float("inf")
-                    metric_valid = (rel_err <= rel_tol)
-                
-                sigma_rel = 0.20 + 0.012 * nom_h
-                sigma = max(2.0, sigma_rel * target_apparent)
-                score = math.exp(-(residual ** 2) / (2.0 * sigma * sigma))
-                
-                if score > best_score:
-                    best_score = score
-                    is_candidate_valid = metric_valid
-
-            surface_scores[ref] = best_score
-            if is_candidate_valid:
-                valid_by_surface.append(ref)
-
-        if not valid_by_surface:
-            valid_by_surface = valid_by_color
-
-        # --- 8. Fase 3: Gating de Altura (Solo si la cámara lateral está activa) ---
-        valid_by_height = []
-        if USE_LATERAL_CAMERA:
-            for ref in valid_by_surface:
-                nominals = get_nominal_heights(ref)
-                for nom in nominals:
-                    if 0.65 * nom <= measured_height <= 1.35 * nom:
-                        valid_by_height.append(ref)
-                        break
-            if not valid_by_height:
-                valid_by_height = valid_by_surface
+        ys_c, xs_c = np.where(mask_cen > 0)
+        if len(ys_c) > 0:
+            px1_c_tight, py1_c_tight, px2_c_tight, py2_c_tight = int(np.min(xs_c)), int(np.min(ys_c)), int(np.max(xs_c)), int(np.max(ys_c))
+            crop_cen = img_cen_masked.crop((px1_c_tight, py1_c_tight, px2_c_tight, py2_c_tight))
         else:
-            valid_by_height = valid_by_surface
-
-        # --- 9. Decisión Final ---
-        # El candidato con el score de superficie más alto es la predicción final
-        scores_finales = {ref: surface_scores.get(ref, 0.0) for ref in valid_by_height}
+            px1_c, py1_c = int(x1_c * w_c), int(y1_c * h_c)
+            px2_c, py2_c = int(x2_c * w_c), int(y2_c * h_c)
+            crop_cen = img_cen_masked.crop((px1_c, py1_c, px2_c, py2_c))
         
-        if scores_finales:
-            consensus_ref = max(scores_finales, key=scores_finales.get)
-            consensus_score = scores_finales[consensus_ref]
+        # Crop lateral (si la cámara lateral está activa y la imagen existe)
+        crop_lat = None
+        if USE_LATERAL_CAMERA and img_lat is not None and mask_lat is not None:
+            w_l, h_l = img_lat.size
+            img_lat_np = np.array(img_lat.convert("RGB"))
+            img_lat_np[mask_lat == 0] = [0, 0, 0]
+            img_lat_masked = Image.fromarray(img_lat_np)
+            
+            ys_l, xs_l = np.where(mask_lat > 0)
+            if len(ys_l) > 0:
+                px1_l_tight, py1_l_tight, px2_l_tight, py2_l_tight = int(np.min(xs_l)), int(np.min(ys_l)), int(np.max(xs_l)), int(np.max(ys_l))
+                crop_lat = img_lat_masked.crop((px1_l_tight, py1_l_tight, px2_l_tight, py2_l_tight))
+            else:
+                px1_l, py1_l = int(x1_l * w_l), int(y1_l * h_l)
+                px2_l, py2_l = int(x2_l * w_l), int(y2_l * h_l)
+                crop_lat = img_lat_masked.crop((px1_l, py1_l, px2_l, py2_l))
+            
+        preds = efficientnet_clf.classify(
+            crop_cen=crop_cen,
+            mask_cen=mask_cen,
+            crop_lat=crop_lat,
+            mask_lat=mask_lat,
+            area_cenital=obs_apparent_area_mm2
+        )
+        
+        # Mocks para variables de log remanentes
+        valid_by_color = []
+        valid_by_surface = []
+        
+        if preds:
+            consensus_ref = preds[0]["part_ref"]
+            consensus_score = preds[0]["score"]
         else:
             consensus_ref = "Desconocido"
             consensus_score = 0.0

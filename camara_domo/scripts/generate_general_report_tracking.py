@@ -2,9 +2,8 @@
 """
 camara_domo/scripts/generate_general_report_tracking.py
 ======================================================
-Genera un reporte de diagnóstico general e integrador del último pipeline de inferencia
-con tracking secuencial multi-vista.
-Calcula métricas globales de accuracy de referencia, color, y errores de dimensiones.
+Genera un reporte de diagnóstico comparativo de 3 pipelines de inferencia
+(CLASSIC, HYBRID, POSE_ONLY) con tracking secuencial multi-vista.
 """
 
 import os
@@ -12,6 +11,8 @@ import sys
 import json
 import math
 import argparse
+import cv2
+import numpy as np
 from typing import List, Dict, Any, Tuple
 
 # Configuración de directorios
@@ -23,7 +24,9 @@ sys.path.insert(0, legovic_root)
 sys.path.insert(0, project_root)
 
 DEFAULT_DATA_DIR = os.path.join(project_root, "data", "data100")
-DEFAULT_CONSOLIDATED = os.path.join(legovic_root, "logs", "inferencia_consolidada_final.json")
+DEFAULT_CONSOLIDATED_CLASSIC = os.path.join(project_root, "logs", "inferencia_consolidada_CLASSIC.json")
+DEFAULT_CONSOLIDATED_HYBRID = os.path.join(project_root, "logs", "inferencia_consolidada_HYBRID.json")
+DEFAULT_CONSOLIDATED_POSE = os.path.join(project_root, "logs", "inferencia_consolidada_POSE_ONLY.json")
 DEFAULT_METADATA = os.path.join(DEFAULT_DATA_DIR, "simulation_metadata.json")
 DEFAULT_OUT_HTML = os.path.join(DEFAULT_DATA_DIR, "reports", "general_report_tracking.html")
 
@@ -51,48 +54,64 @@ def find_matching_gt_piece(bbox_cen, visible_pieces):
     return None, 0.0
 
 def build_general_report(
-    consolidated_path: str,
+    consolidated_classic: str,
+    consolidated_hybrid: str,
+    consolidated_pose: str,
     metadata_path: str,
     out_html_path: str,
     limit: int = 0
 ):
-    print(f"Cargando consolidado: {consolidated_path}...")
-    with open(consolidated_path, "r", encoding="utf-8") as f:
-        tracks = json.load(f)
+    print(f"Cargando consolidado CLASSIC: {consolidated_classic}...")
+    with open(consolidated_classic, "r", encoding="utf-8") as f:
+        tracks_classic = json.load(f)
+
+    print(f"Cargando consolidado HYBRID: {consolidated_hybrid}...")
+    with open(consolidated_hybrid, "r", encoding="utf-8") as f:
+        tracks_hybrid = json.load(f)
+
+    print(f"Cargando consolidado POSE_ONLY: {consolidated_pose}...")
+    with open(consolidated_pose, "r", encoding="utf-8") as f:
+        tracks_pose = json.load(f)
 
     print(f"Cargando metadatos: {metadata_path}...")
     with open(metadata_path, "r", encoding="utf-8") as f:
         metadata = json.load(f)
 
-    if limit > 0 and len(tracks) > limit:
+    all_tids = list(set(tracks_classic.keys()).intersection(tracks_hybrid.keys()).intersection(tracks_pose.keys()))
+
+    if limit > 0 and len(all_tids) > limit:
         import random
         # Seleccionar limit tracks aleatorios para evaluar
-        selected_keys = random.sample(list(tracks.keys()), limit)
-        tracks = {k: tracks[k] for k in selected_keys}
+        selected_keys = random.sample(all_tids, limit)
         print(f"[INFO] Limitando evaluación a un subconjunto aleatorio de {limit} piezas trackeadas.")
+    else:
+        selected_keys = all_tids
+
+    print("Cargando base de datos para inferencia paramétrica...")
+    from scripts.inferencia_neuronal import load_db_universe, match_piece_hypothesis
+    poses_db, colors_db = load_db_universe(None)
 
     frames_meta = {f["file_name"]: f for f in metadata["frames"]}
     
-    total_tracks = len(tracks)
+    reports_dir = os.path.dirname(out_html_path)
+    crops_dir = os.path.join(reports_dir, "crops")
+    os.makedirs(crops_dir, exist_ok=True)
+    sim_dir = os.path.dirname(metadata_path)
+    
+    total_tracks = len(selected_keys)
     matched_tracks = 0
-    correct_refs = 0
-    
-    # En nuestro pipeline, el color final es unificado (cenital es el principal)
-    correct_colors_cen = 0
-    correct_colors_lat = 0 # Estimado como proxy
-    
-    area_cen_errors = []
-    area_lat_errors = []
-    height_errors = []
-    
     detailed_results = []
     
-    for tid, track_data in tracks.items():
-        history = track_data["history"]
+    for tid in selected_keys:
+        track_c = tracks_classic[tid]
+        track_h = tracks_hybrid[tid]
+        track_p = tracks_pose[tid]
+        
+        history = track_c["history"]
         if not history:
             continue
             
-        # Encontrar frame más centrado
+        # Encontrar frame más centrado usando CLASSIC como referencia
         best_obs_idx = -1
         best_dist = float("inf")
         for idx, h in enumerate(history):
@@ -107,132 +126,194 @@ def build_general_report(
         best_obs = history[best_obs_idx]
         best_frame_id = best_obs["frame_id"]
         
-        frame_key = f"{best_frame_id}.png"
+        frame_cen_name = f"{best_frame_id}.png"
+        frame_lat_name = f"{best_frame_id}_frontal.png"
+        frame_key = frame_cen_name
         if frame_key not in frames_meta:
-            frame_key = f"{best_frame_id}.jpg"
+            frame_cen_name = f"{best_frame_id}.jpg"
+            frame_lat_name = f"{best_frame_id}_frontal.jpg"
+            frame_key = frame_cen_name
             
         if frame_key not in frames_meta:
             continue
             
+        # We need GT data first for drawing
         f_meta = frames_meta[frame_key]
-        gt_p, iou = find_matching_gt_piece(best_obs["bbox_cen"], f_meta.get("visible_pieces", []))
+        gt_p, iou_cen = find_matching_gt_piece(best_obs["bbox_cen"], f_meta.get("visible_pieces", []))
         
+        iou_lat = 0.0
         gt_ref = "Unknown"
         gt_color = "Unknown"
         gt_area_cen = 0.0
-        gt_area_lat = 0.0 # Estimaremos usando el bounding box real para comparar
         gt_height = 0.0
+        gt_bbox_cen = None
+        gt_bbox_lat = None
         
         if gt_p:
             gt_ref = gt_p["ref"]
             gt_color = gt_p["color_name"]
             gt_area_cen = gt_p["zenith_silhouette_area_gt"] or 0.0
             gt_height = gt_p["lateral_height_gt"] or 0.0
+            gt_bbox_cen = gt_p.get("bbox_cenital_norm")
+            gt_bbox_lat = gt_p.get("bbox_frontal_norm")
+            if "bbox_lat" in best_obs and gt_bbox_lat:
+                iou_lat = compute_iou(best_obs["bbox_lat"], gt_bbox_lat)
             matched_tracks += 1
-            
-            # Verificar aciertos
-            is_correct_ref = track_data["referencia_detectada"] == gt_ref
-            is_correct_color_cen = track_data["color"] == gt_color
-            # En la simulación actual el color es homogéneo por pieza, asumimos proxy
-            is_correct_color_lat = track_data["color"] == gt_color 
-            
-            if is_correct_ref:
-                correct_refs += 1
-            if is_correct_color_cen:
-                correct_colors_cen += 1
-            if is_correct_color_lat:
-                correct_colors_lat += 1
+
+        # Process image crops
+        crop_cen_rel = f"crops/{tid}_cen.png"
+        crop_lat_rel = f"crops/{tid}_lat.png"
+        crop_cen_abs = os.path.join(reports_dir, crop_cen_rel)
+        crop_lat_abs = os.path.join(reports_dir, crop_lat_rel)
+        
+        # Siempre sobreescribimos los crops para actualizar los rectángulos si cambian las lógicas
+        img_cen_path = os.path.join(sim_dir, frame_cen_name)
+        if os.path.exists(img_cen_path):
+            img = cv2.imread(img_cen_path)
+            if img is not None:
+                h, w = img.shape[:2]
+                if gt_bbox_cen:
+                    gx1, gy1, gx2, gy2 = int(gt_bbox_cen[0]*w), int(gt_bbox_cen[1]*h), int(gt_bbox_cen[2]*w), int(gt_bbox_cen[3]*h)
+                    cv2.rectangle(img, (gx1, gy1), (gx2, gy2), (255, 0, 0), 2)
+                ix1, iy1, ix2, iy2 = int(best_obs["bbox_cen"][0]*w), int(best_obs["bbox_cen"][1]*h), int(best_obs["bbox_cen"][2]*w), int(best_obs["bbox_cen"][3]*h)
+                color_inf = (0, 255, 0) if iou_cen > 0.5 else (0, 0, 255)
+                cv2.rectangle(img, (ix1, iy1), (ix2, iy2), color_inf, 2)
                 
-            # Errores cuantitativos
-            avg_area_cen = track_data["confidence_details"]["average_area_cen"]
-            avg_area_lat = track_data["confidence_details"]["average_area_lat"]
-            avg_height = track_data["confidence_details"]["average_height"]
-            
-            err_area_cen = abs((avg_area_cen - gt_area_cen) / gt_area_cen) * 100.0 if gt_area_cen > 0 else 0.0
-            area_cen_errors.append(err_area_cen)
-            
-            # Para el área lateral, estimamos una base nominal (por ejemplo, altura nominal * longitud)
-            # como ground truth de referencia si no viene directo en simulation_metadata
-            nominal_area_lat_gt = gt_height * (math.sqrt(gt_area_cen) or 10.0)
-            err_area_lat = abs((avg_area_lat - nominal_area_lat_gt) / nominal_area_lat_gt) * 100.0 if nominal_area_lat_gt > 0 else 0.0
-            area_lat_errors.append(err_area_lat)
-            
-            err_height = abs((avg_height - gt_height) / gt_height) * 100.0 if gt_height > 0 else 0.0
-            height_errors.append(err_height)
+                x1, y1 = max(0, ix1-40), max(0, iy1-40)
+                x2, y2 = min(w, ix2+40), min(h, iy2+40)
+                crop_img = img[y1:y2, x1:x2]
+                if crop_img.size > 0:
+                    cv2.imwrite(crop_cen_abs, crop_img)
                 
-        else:
-            is_correct_ref = False
-            is_correct_color_cen = False
-            is_correct_color_lat = False
-            avg_area_cen = track_data["confidence_details"]["average_area_cen"]
-            avg_area_lat = track_data["confidence_details"]["average_area_lat"]
-            avg_height = track_data["confidence_details"]["average_height"]
-            err_area_cen = 0.0
-            err_area_lat = 0.0
-            err_height = 0.0
-            nominal_area_lat_gt = 0.0
+        img_lat_path = os.path.join(sim_dir, frame_lat_name)
+        if os.path.exists(img_lat_path) and "bbox_lat" in best_obs:
+            img = cv2.imread(img_lat_path)
+            if img is not None:
+                h, w = img.shape[:2]
+                if gt_bbox_lat:
+                    gx1, gy1, gx2, gy2 = int(gt_bbox_lat[0]*w), int(gt_bbox_lat[1]*h), int(gt_bbox_lat[2]*w), int(gt_bbox_lat[3]*h)
+                    cv2.rectangle(img, (gx1, gy1), (gx2, gy2), (255, 0, 0), 2)
+                ix1, iy1, ix2, iy2 = int(best_obs["bbox_lat"][0]*w), int(best_obs["bbox_lat"][1]*h), int(best_obs["bbox_lat"][2]*w), int(best_obs["bbox_lat"][3]*h)
+                color_inf = (0, 255, 0) if iou_lat > 0.5 else (0, 0, 255)
+                cv2.rectangle(img, (ix1, iy1), (ix2, iy2), color_inf, 2)
+                
+                x1, y1 = max(0, ix1-40), max(0, iy1-40)
+                x2, y2 = min(w, ix2+40), min(h, iy2+40)
+                crop_img = img[y1:y2, x1:x2]
+                if crop_img.size > 0:
+                    cv2.imwrite(crop_lat_abs, crop_img)
             
-        detailed_results.append({
+        res_row = {
             "tid": tid,
             "best_frame": best_frame_id,
-            "inferred_ref": track_data["referencia_detectada"],
+            "crop_cen_rel": crop_cen_rel,
+            "crop_lat_rel": crop_lat_rel,
             "gt_ref": gt_ref,
-            "inferred_color_cen": track_data["color"],
-            "inferred_color_lat": track_data["color"], # Inferencia unificada
             "gt_color": gt_color,
-            "area_cen_inf": avg_area_cen,
-            "area_cen_gt": gt_area_cen,
-            "err_area_cen": err_area_cen,
-            "area_lat_inf": avg_area_lat,
-            "area_lat_gt": nominal_area_lat_gt,
-            "err_area_lat": err_area_lat,
-            "height_inf": avg_height,
-            "height_gt": gt_height,
-            "err_height": err_height,
-            "iou": iou,
-            "is_correct_ref": is_correct_ref,
-            "is_correct_color_cen": is_correct_color_cen,
-            "is_correct_color_lat": is_correct_color_lat
-        })
-
-    # Calcular estadísticas
-    acc_ref = (correct_refs / matched_tracks * 100.0) if matched_tracks > 0 else 0.0
-    acc_color_cen = (correct_colors_cen / matched_tracks * 100.0) if matched_tracks > 0 else 0.0
-    acc_color_lat = (correct_colors_lat / matched_tracks * 100.0) if matched_tracks > 0 else 0.0
-    
-    mae_area_cen = (sum(area_cen_errors) / len(area_cen_errors)) if area_cen_errors else 0.0
-    mae_area_lat = (sum(area_lat_errors) / len(area_lat_errors)) if area_lat_errors else 0.0
-    mae_height = (sum(height_errors) / len(height_errors)) if height_errors else 0.0
+            "gt_area_cen": gt_area_cen,
+            "gt_height": gt_height,
+            "iou_cen": iou_cen,
+            "iou_lat": iou_lat,
+            "pipelines": {}
+        }
+        
+        for p_name, p_data in [("CLASSIC", track_c), ("HYBRID", track_h), ("POSE", track_p)]:
+            avg_area_cen = p_data["confidence_details"]["average_area_cen"]
+            avg_height = p_data["confidence_details"]["average_height"]
+            
+            # --- Inferencia Paramétrica ---
+            color_name = p_data["color"]
+            color_model_best = next((c for c in colors_db if c.color_name == color_name), colors_db[0] if colors_db else None)
+            candidates = match_piece_hypothesis(
+                poses_db=poses_db,
+                color_inferido=color_model_best,
+                area_cen_est=avg_area_cen,
+                area_lat_est=p_data["confidence_details"]["average_area_lat"],
+                height_est=avg_height,
+                studs_est=0,
+                height_is_fallback=True
+            )
+            candidates.sort(key=lambda x: x[2])
+            ref_param = candidates[0][0] if candidates else "Unknown"
+            
+            err_area = abs((avg_area_cen - gt_area_cen) / gt_area_cen) * 100.0 if gt_area_cen > 0 else 0.0
+            err_height = abs((avg_height - gt_height) / gt_height) * 100.0 if gt_height > 0 else 0.0
+            
+            res_row["pipelines"][p_name] = {
+                "color": color_name,
+                "area_cen": avg_area_cen,
+                "err_area": err_area,
+                "height": avg_height,
+                "err_height": err_height,
+                "ref_param": ref_param,
+                "ref_effnet": p_data["referencia_detectada"]
+            }
+            
+        detailed_results.append(res_row)
 
     rows_html = ""
     for res in detailed_results:
-        ref_class = "ok" if res["is_correct_ref"] else "bad"
-        color_cen_class = "ok" if res["is_correct_color_cen"] else "bad"
-        color_lat_class = "ok" if res["is_correct_color_lat"] else "bad"
+        gt_ref = res["gt_ref"]
         
+        # Sub-filas por pipeline
+        pipelines_html = ""
+        for p_name in ["CLASSIC", "HYBRID", "POSE"]:
+            p_data = res["pipelines"][p_name]
+            
+            ref_eff_class = "ok" if p_data["ref_effnet"] == gt_ref else "bad"
+            ref_param_class = "ok" if p_data["ref_param"] == gt_ref else "bad"
+            color_class = "ok" if p_data["color"] == res["gt_color"] else "bad"
+            
+            pipelines_html += f"""
+            <tr class="sub-row">
+                <td><strong>{p_name}</strong></td>
+                <td><span class="badge badge-{color_class}">{p_data['color']}</span></td>
+                <td>{p_data['area_cen']:.1f} mm² <small>({p_data['err_area']:+.1f}%)</small></td>
+                <td>{p_data['height']:.2f} mm <small>({p_data['err_height']:+.1f}%)</small></td>
+                <td>
+                    Param: <span class="badge badge-{ref_param_class}">{p_data['ref_param']}</span><br>
+                    EffNet: <span class="badge badge-{ref_eff_class}">{p_data['ref_effnet']}</span>
+                </td>
+            </tr>
+            """
+            
         rows_html += f"""
-        <tr>
-            <td><strong>{res['tid']}</strong></td>
-            <td>{res['best_frame']}</td>
-            <td><span class="badge badge-{ref_class}">{res['inferred_ref']}</span> vs <span class="badge badge-neutral">{res['gt_ref']}</span></td>
-            <td>
-                Cenital: <span class="badge badge-{color_cen_class}">{res['inferred_color_cen']}</span><br>
-                Lateral: <span class="badge badge-{color_lat_class}">{res['inferred_color_lat']}</span>
+        <tr class="main-row">
+            <td rowspan="4" style="border-right: 1px solid var(--border-color); text-align: center; vertical-align: middle;">
+                <div style="margin-bottom: 8px;">
+                    <img src="{res['crop_cen_rel']}" alt="Cenital" style="max-width: 80px; max-height: 80px; border-radius: 4px; border: 1px solid var(--border-color);"><br>
+                    <small style="color: var(--text-secondary);">Cenital</small>
+                </div>
+                <div>
+                    <img src="{res['crop_lat_rel']}" alt="Lateral" style="max-width: 80px; max-height: 80px; border-radius: 4px; border: 1px solid var(--border-color);"><br>
+                    <small style="color: var(--text-secondary);">Lateral</small>
+                </div>
             </td>
-            <td>
-                Cen: {res['area_cen_inf']:.1f} mm² <small>({res['err_area_cen']:+.1f}%)</small><br>
-                Lat: {res['area_lat_inf']:.1f} mm² <small>({res['err_area_lat']:+.1f}%)</small>
+            <td rowspan="4" style="border-right: 1px solid var(--border-color);">
+                <strong>{res['tid']}</strong><br>
+                <small style="color: var(--text-secondary);">Frame: {res['best_frame']}</small><br>
+                <div style="margin-top: 8px;">
+                    <span class="badge badge-{'ok' if res['iou_cen'] > 0.5 else 'bad'}">BBox Cen: {res['iou_cen']:.2f}</span>
+                </div>
+                <div style="margin-top: 4px;">
+                    <span class="badge badge-{'ok' if res['iou_lat'] > 0.5 else 'bad'}">BBox Lat: {res['iou_lat']:.2f}</span>
+                </div>
             </td>
-            <td>{res['height_inf']:.2f} mm <small>({res['height_gt']:.2f} real, {res['err_height']:+.1f}%)</small></td>
-            <td>{res['iou']:.2f}</td>
+            <td rowspan="4" style="border-right: 1px solid var(--border-color);">
+                <div style="margin-bottom: 4px;"><strong>Ref:</strong> <span class="badge badge-neutral">{gt_ref}</span></div>
+                <div style="margin-bottom: 4px;"><strong>Color:</strong> {res['gt_color']}</div>
+                <div style="margin-bottom: 4px;"><strong>Área:</strong> {res['gt_area_cen']:.1f} mm²</div>
+                <div><strong>Altura:</strong> {res['gt_height']:.2f} mm</div>
+            </td>
         </tr>
+        {pipelines_html}
         """
 
     html_content = f"""<!DOCTYPE html>
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <title>Reporte General de Tracking e Inferencia</title>
+    <title>Reporte Comparativo de Tracking e Inferencia</title>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap');
         
@@ -256,7 +337,7 @@ def build_general_report(
             padding: 40px;
         }}
         
-        .container {{ max-width: 1200px; margin: 0 auto; }}
+        .container {{ max-width: 1400px; margin: 0 auto; }}
         
         .header {{
             background: linear-gradient(135deg, #131a26, #1e293b);
@@ -279,40 +360,9 @@ def build_general_report(
             font-size: 16px;
         }}
         
-        .stats-grid {{
-            display: grid;
-            grid-template-columns: repeat(6, 1fr);
-            gap: 20px;
-            margin-bottom: 30px;
-        }}
-        
-        .card-stat {{
-            background-color: var(--bg-card);
-            border: 1px solid var(--border-color);
-            border-radius: 12px;
-            padding: 20px;
-            text-align: center;
-        }}
-        
-        .card-stat .value {{
-            font-size: 26px;
-            font-weight: 700;
-            margin-bottom: 5px;
-        }}
-        
-        .card-stat .value.ok {{ color: var(--ok); }}
-        .card-stat .value.warn {{ color: var(--warn); }}
-        .card-stat .value.bad {{ color: var(--bad); }}
-        
-        .card-stat .label {{
-            color: var(--text-secondary);
-            font-size: 12px;
-            font-weight: 600;
-        }}
-        
         .explanation-grid {{
             display: grid;
-            grid-template-columns: 1fr 1fr;
+            grid-template-columns: repeat(3, 1fr);
             gap: 25px;
             margin-bottom: 30px;
         }}
@@ -338,6 +388,7 @@ def build_general_report(
             border: 1px solid var(--border-color);
             border-radius: 16px;
             padding: 30px;
+            overflow-x: auto;
         }}
         
         .card-table h2 {{
@@ -363,6 +414,11 @@ def build_general_report(
         th {{
             color: var(--text-secondary);
             font-weight: 600;
+            background-color: #1e293b;
+        }}
+        
+        .sub-row td {{
+            background-color: #0f141e;
         }}
         
         .badge {{
@@ -370,6 +426,7 @@ def build_general_report(
             border-radius: 4px;
             font-size: 12px;
             font-weight: 700;
+            display: inline-block;
         }}
         .badge-ok {{ background-color: rgba(16, 185, 129, 0.15); color: var(--ok); border: 1px solid var(--ok); }}
         .badge-bad {{ background-color: rgba(239, 68, 68, 0.15); color: var(--bad); border: 1px solid var(--bad); }}
@@ -379,72 +436,41 @@ def build_general_report(
 <body>
     <div class="container">
         <div class="header">
-            <h1>Reporte General de Tracking e Inferencia</h1>
-            <p>Métricas de precisión acumuladas y emparejamiento con Ground Truth</p>
-        </div>
-        
-        <div class="stats-grid">
-            <div class="card-stat">
-                <div class="value ok">{matched_tracks} / {total_tracks}</div>
-                <div class="label">Asociados a GT</div>
-            </div>
-            <div class="card-stat">
-                <div class="value ok">{acc_ref:.1f}%</div>
-                <div class="label">Accuracy Ref</div>
-            </div>
-            <div class="card-stat">
-                <div class="value ok">{acc_color_cen:.1f}%</div>
-                <div class="label">Color Cenital Ok</div>
-            </div>
-            <div class="card-stat">
-                <div class="value ok">{acc_color_lat:.1f}%</div>
-                <div class="label">Color Lateral Ok</div>
-            </div>
-            <div class="card-stat">
-                <div class="value warn">{mae_area_cen:.1f}%</div>
-                <div class="label">MAE Área Cen</div>
-            </div>
-            <div class="card-stat">
-                <div class="value warn">{mae_height:.1f}%</div>
-                <div class="label">MAE Altura (DLT)</div>
-            </div>
+            <h1>Reporte Comparativo de Tracking e Inferencia</h1>
+            <p>Análisis de desempeño entre arquitecturas CLASSIC, HYBRID y POSE_ONLY</p>
         </div>
         
         <div class="explanation-grid">
             <div class="explanation-card">
-                <h3>🎨 Estimación del Color Cenital y Lateral</h3>
-                <p>
-                    <strong>Cenital:</strong> Se estima calculando los valores promedio de RGB y HSV de los píxeles pertenecientes a la máscara de segmentación SAM de la vista superior (que tiene fondo de la cinta transportadora negra). El RGB promedio se proyecta al espacio colorimétrico tridimensional <strong>CIELAB</strong> (donde las distancias Euclidianas reflejan mejor la percepción humana) y se busca la coincidencia más cercana frente a la paleta de colores calibrada.
-                </p>
-                <p>
-                    <strong>Lateral:</strong> Debido al ángulo inclinado de la cámara lateral (45°), la estimación de color lateral se realiza mapeando de forma unificada el estimador cenital consolidado tras cruzar las proyecciones epipolares, asegurando consistencia e inmunidad a los reflejos metálicos del chasis.
-                </p>
+                <h3>🛠️ CLASSIC Pipeline</h3>
+                <p><strong>Proceso:</strong> Bounding Boxes (YOLO) → Segmentación de Máscara (MobileSAM) → Keypoints (YOLO-Pose).</p>
+                <p>Pipeline tradicional, de gran precisión en extracción de máscaras gracias a SAM, pero con mayor costo computacional (bajos FPS) al ejecutar 3 modelos secuenciales.</p>
             </div>
             <div class="explanation-card">
-                <h3>📐 Estimación de la Altura Lateral (3D DLT)</h3>
-                <p>
-                    La altura de la pieza se estima principalmente mediante <strong>Triangulación DLT (Direct Linear Transformation)</strong> usando los keypoints de pose detectados en paralelo por YOLO-Pose (Cenital + Lateral/Inclinada). 
-                </p>
-                <p>
-                    Si la confianza de los keypoints es baja (por oclusión o perspectiva extrema), el pipeline conmuta automáticamente a un <strong>Fallback de Altura Bounding Box:</strong>
-                    $$\\text{{Altura (mm)}} = \\frac{{\\Delta y_\\text{{pixel}} \\times \\text{{Resolución Y}}}}{{\\text{{Escala Lateral Calibrada }} (px/mm)}}$$
-                    El promedio de alturas válidas de la trayectoria se consolida al salir del FoV.
-                </p>
+                <h3>⚡ HYBRID Pipeline</h3>
+                <p><strong>Proceso:</strong> Keypoints (YOLO-Pose) → Bounding Boxes derivadas → Segmentación de Máscara (MobileSAM).</p>
+                <p>Elimina el YOLO estándar reaprovechando la inferencia de Pose para generar Bounding Boxes perimetrales antes de pasarlos a SAM. Mantiene la misma precisión semántica con menor latencia global.</p>
+            </div>
+            <div class="explanation-card">
+                <h3>🚀 POSE_ONLY Pipeline</h3>
+                <p><strong>Proceso:</strong> Keypoints (YOLO-Pose) → Cálculo de Área vía Convex Hull.</p>
+                <p>Elimina MobileSAM por completo. El área y el color de la pieza se estiman directamente usando la envolvente convexa geométrica sobre los keypoints detectados. Es el método más rápido (altos FPS) pero puede perder precisión si los keypoints son ruidosos o incompletos.</p>
             </div>
         </div>
         
         <div class="card-table">
-            <h2>Detalle de Inferencia por Pieza Trackeada</h2>
+            <h2>Detalle de Inferencia Multi-Pipeline por Pieza Trackeada ({total_tracks} evaluadas)</h2>
             <table>
                 <thead>
                     <tr>
-                        <th>Track ID</th>
-                        <th>Frame Principal</th>
-                        <th>Referencia (Inferred vs GT)</th>
-                        <th>Color (Inferred vs GT)</th>
-                        <th>Superficies (Cenital vs Lateral)</th>
-                        <th>Altura (DLT / Lateral)</th>
-                        <th>IoU Match</th>
+                        <th>Imágenes (Crops)</th>
+                        <th>Track ID / GT</th>
+                        <th>Ground Truth (Real)</th>
+                        <th>Pipeline</th>
+                        <th>Color Inferido</th>
+                        <th>Área Cenital (Error %)</th>
+                        <th>Altura Lateral (Error %)</th>
+                        <th>Resultado Inferencia</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -461,25 +487,34 @@ def build_general_report(
     with open(out_html_path, "w", encoding="utf-8") as f:
         f.write(html_content)
         
-    print(f"\n[SUCCESS] Reporte guardado en: {out_html_path}")
+    print(f"\n[SUCCESS] Reporte comparativo guardado en: {out_html_path}")
 
 def main():
-    parser = argparse.ArgumentParser(description="Genera el reporte general de tracking.")
-    parser.add_argument("--consolidated", type=str, default=DEFAULT_CONSOLIDATED)
+    parser = argparse.ArgumentParser(description="Genera el reporte comparativo de tracking e inferencia.")
+    parser.add_argument("--consolidated_classic", type=str, default=DEFAULT_CONSOLIDATED_CLASSIC)
+    parser.add_argument("--consolidated_hybrid", type=str, default=DEFAULT_CONSOLIDATED_HYBRID)
+    parser.add_argument("--consolidated_pose", type=str, default=DEFAULT_CONSOLIDATED_POSE)
     parser.add_argument("--metadata", type=str, default=DEFAULT_METADATA)
     parser.add_argument("--out", type=str, default=DEFAULT_OUT_HTML)
     parser.add_argument("--limit", type=int, default=0, help="Limita la evaluación a un número de tracks aleatorios.")
     args = parser.parse_args()
     
-    if not os.path.exists(args.consolidated):
-        print(f"[ERROR] Archivo consolidado no encontrado: {args.consolidated}")
+    if not os.path.exists(args.consolidated_classic):
+        print(f"[ERROR] Archivo CLASSIC no encontrado: {args.consolidated_classic}")
         return
         
     if not os.path.exists(args.metadata):
         print(f"[ERROR] Metadatos de simulación no encontrados: {args.metadata}")
         return
         
-    build_general_report(args.consolidated, args.metadata, args.out, args.limit)
+    build_general_report(
+        args.consolidated_classic, 
+        args.consolidated_hybrid, 
+        args.consolidated_pose, 
+        args.metadata, 
+        args.out, 
+        args.limit
+    )
 
 if __name__ == "__main__":
     main()

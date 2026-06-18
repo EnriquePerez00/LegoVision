@@ -83,25 +83,57 @@ def draw_bboxes_and_highlight(
     except IOError:
         font = ImageFont.load_default()
         
+    is_failed_match = (highlight_bbox == [0.0, 0.0, 1.0, 1.0])
+    
+    # Primero buscar cuál es la pieza de ground truth con mayor IoU
+    best_iou = 0.0
+    best_p = None
     for p in visible_pieces:
         bbox = p.get(target_bbox_key)
         if not bbox:
             continue
-            
-        x1, y1 = int(bbox[0] * w), int(bbox[1] * h)
-        x2, y2 = int(bbox[2] * w), int(bbox[3] * h)
-        
-        # Comparar con el bbox objetivo
-        iou = compute_iou(highlight_bbox, bbox)
-        if iou > 0.8:
-            # Resaltar la pieza objetivo
-            draw.rectangle([x1, y1, x2, y2], outline=color_hex, width=5)
-            # Etiqueta
-            draw.rectangle([x1, max(0, y1 - 30), x1 + 160, y1], fill=color_hex)
-            draw.text((x1 + 5, max(0, y1 - 26)), f"{label}: {p['ref']}", fill="white", font=font)
+        if is_failed_match:
+            if str(p.get("ref", "")) == str(target_ref):
+                best_p = p
+                break
         else:
-            # Dibujar otras piezas
+            iou = compute_iou(highlight_bbox, bbox)
+            if iou > best_iou:
+                best_iou = iou
+                best_p = p
+
+    # Dibujar todas las piezas no objetivo en azul
+    for p in visible_pieces:
+        bbox = p.get(target_bbox_key)
+        if not bbox:
+            continue
+        # Si esta pieza no es la mejor coincidencia
+        if p != best_p:
+            x1, y1 = int(bbox[0] * w), int(bbox[1] * h)
+            x2, y2 = int(bbox[2] * w), int(bbox[3] * h)
             draw.rectangle([x1, y1, x2, y2], outline="#38bdf8", width=2)
+            
+    if is_failed_match:
+        if best_p and best_p.get(target_bbox_key):
+            # Target missed by model but present in GT! Draw GT box to show where it should be
+            bbox = best_p.get(target_bbox_key)
+            hx1, hy1 = int(bbox[0] * w), int(bbox[1] * h)
+            hx2, hy2 = int(bbox[2] * w), int(bbox[3] * h)
+            draw.rectangle([hx1, hy1, hx2, hy2], outline="#f97316", width=5)
+            gt_label = f" (GT: {best_p['ref']})"
+            draw.rectangle([hx1, max(0, hy1 - 30), hx1 + 300, hy1], fill="#f97316")
+            draw.text((hx1 + 5, max(0, hy1 - 26)), f"ASOCIACIÓN LATERAL FALLIDA{gt_label}", fill="white", font=font)
+    else:
+        # Dibujar la caja analizada real (highlight_bbox) de forma destacada
+        hx1, hy1 = int(highlight_bbox[0] * w), int(highlight_bbox[1] * h)
+        hx2, hy2 = int(highlight_bbox[2] * w), int(highlight_bbox[3] * h)
+        
+        draw.rectangle([hx1, hy1, hx2, hy2], outline=color_hex, width=5)
+        
+        # Etiqueta descriptiva sobre la caja
+        gt_label = f" (GT: {best_p['ref']})" if best_p else ""
+        draw.rectangle([hx1, max(0, hy1 - 30), hx1 + 220, hy1], fill=color_hex)
+        draw.text((hx1 + 5, max(0, hy1 - 26)), f"{label}{gt_label}", fill="white", font=font)
             
     return img_draw
 
@@ -109,7 +141,9 @@ def generate_html_report(
     track_data: Dict[str, Any],
     metadata: Dict[str, Any],
     data_dir: str,
-    out_dir: str
+    out_dir: str,
+    poses_db: Any,
+    colors_db: Any
 ):
     tid = track_data["tracking_id"]
     history = track_data["history"]
@@ -178,6 +212,23 @@ def generate_html_report(
     avg_area_lat = track_data["confidence_details"]["average_area_lat"]
     avg_height = track_data["confidence_details"]["average_height"]
     
+    # --- Inferencia Paramétrica ---
+    from scripts.inferencia_neuronal import match_piece_hypothesis
+    color_name = track_data["color"]
+    color_model_best = next((c for c in colors_db if c.color_name == color_name), colors_db[0] if colors_db else None)
+    
+    candidates = match_piece_hypothesis(
+        poses_db=poses_db,
+        color_inferido=color_model_best,
+        area_cen_est=avg_area_cen,
+        area_lat_est=avg_area_lat,
+        height_est=avg_height,
+        studs_est=0,
+        height_is_fallback=True
+    )
+    candidates.sort(key=lambda x: x[2])
+    ref_parametrica = candidates[0][0] if candidates else "Unknown"
+    
     # Errores relativos
     err_area_pct = ((avg_area_cen - gt_area_cen) / gt_area_cen) * 100.0 if gt_area_cen > 0 else 0.0
     err_height_pct = ((avg_height - gt_height) / gt_height) * 100.0 if gt_height > 0 else 0.0
@@ -212,44 +263,220 @@ def generate_html_report(
     from ultralytics import SAM
     import numpy as np
     
-    # Obtener máscara SAM para crop cenital
+    # Crops frontal
+    w_l, h_l = img_lat.size
+    bbox_lat = best_obs["bbox_lat"]
+    bbox_lat_is_fallback = (bbox_lat == [0.0, 0.0, 1.0, 1.0])
+    
+    if bbox_lat_is_fallback:
+        placeholder = Image.new("RGB", (200, 150), color="#1e293b")
+        draw_ph = ImageDraw.Draw(placeholder)
+        try: font_ph = ImageFont.truetype("Arial.ttf", 16)
+        except: font_ph = ImageFont.load_default()
+        draw_ph.text((10, 60), "NO LATERAL MATCH", fill="#ef4444", font=font_ph)
+        b64_crop_lat = to_b64(placeholder)
+    else:
+        lx1, ly1 = int(bbox_lat[0] * w_l), int(bbox_lat[1] * h_l)
+        lx2, ly2 = int(bbox_lat[2] * w_l), int(bbox_lat[3] * h_l)
+        img_crop_lat = img_lat.crop((lx1, ly1, lx2, ly2))
+        b64_crop_lat = to_b64(img_crop_lat)
+    
+    # Base64
+    b64_cen_overlay = to_b64(img_cen_overlay)
+    b64_lat_overlay = to_b64(img_lat_overlay)
+    
+    b64_sam_mask = b64_crop_cen
+    b64_sam_mask_lat = b64_crop_lat
+    
     try:
         # Cargar SAM en MPS si está disponible
         import torch
         device = "mps" if torch.backends.mps.is_available() else "cpu"
         sam_model = SAM(os.path.join(legovic_root, "mobile_sam.pt")).to(device)
         
-        # Crop cenital imagen original para SAM
+        # 1. SAM Cenital con YOLO-Masking
         img_cen_rgb = img_cen.convert("RGB")
         w_s, h_s = img_cen_rgb.size
         sx1, sy1 = max(0, int(bbox_cen[0]*w_s)), max(0, int(bbox_cen[1]*h_s))
         sx2, sy2 = min(w_s, int(bbox_cen[2]*w_s)), min(h_s, int(bbox_cen[3]*h_s))
         
-        sam_results = sam_model(np.array(img_cen_rgb), bboxes=[[sx1, sy1, sx2, sy2]], verbose=False)
+        # Enmascarar otras piezas en la imagen cenital
+        img_cen_np = np.array(img_cen_rgb)
+        best_cen_iou = 0.0
+        best_cen_p = None
+        for p in frame_meta["visible_pieces"]:
+            other_box = p.get("bbox_cenital_norm")
+            if not other_box:
+                continue
+            iou = compute_iou(bbox_cen, other_box)
+            if iou > best_cen_iou:
+                best_cen_iou = iou
+                best_cen_p = p
+                
+        for p in frame_meta["visible_pieces"]:
+            if p == best_cen_p:
+                continue
+            other_box = p.get("bbox_cenital_norm")
+            if not other_box:
+                continue
+            ox1 = max(0, min(int(other_box[0] * w_s), w_s - 1))
+            oy1 = max(0, min(int(other_box[1] * h_s), h_s - 1))
+            ox2 = max(0, min(int(other_box[2] * w_s), w_s - 1))
+            oy2 = max(0, min(int(other_box[3] * h_s), h_s - 1))
+            img_cen_np[oy1:oy2, ox1:ox2] = 0
+                
+        cx_c = (sx1 + sx2) * 0.5
+        cy_c = (sy1 + sy2) * 0.5
+        sam_results = sam_model(img_cen_np, bboxes=[[sx1, sy1, sx2, sy2]], points=[[[cx_c, cy_c]]], labels=[[1]], verbose=False)
         if sam_results and sam_results[0].masks is not None:
             mask_data = sam_results[0].masks.data[0].cpu().numpy()
             mask_img_arr = (mask_data * 255).astype(np.uint8)
-            # Hacer crop de la mascara
             mask_pil = Image.fromarray(mask_img_arr).crop((sx1, sy1, sx2, sy2))
             b64_sam_mask = to_b64(mask_pil, format="PNG")
-        else:
-            b64_sam_mask = b64_crop_cen
+            
+        # 2. SAM Frontal con YOLO-Masking (skip si hubo fallo)
+        if not bbox_lat_is_fallback:
+            img_lat_rgb = img_lat.convert("RGB")
+            w_l_s, h_l_s = img_lat_rgb.size
+            lx1_s, ly1_s = max(0, int(bbox_lat[0]*w_l_s)), max(0, int(bbox_lat[1]*h_l_s))
+            lx2_s, ly2_s = min(w_l_s, int(bbox_lat[2]*w_l_s)), min(h_l_s, int(bbox_lat[3]*h_l_s))
+            
+            # Enmascarar otras piezas en la imagen frontal/lateral
+            img_lat_np = np.array(img_lat_rgb)
+            best_lat_iou = 0.0
+            best_lat_p = None
+            for p in frame_meta["visible_pieces"]:
+                other_box = p.get("bbox_frontal_norm")
+                if not other_box:
+                    continue
+                iou = compute_iou(bbox_lat, other_box)
+                if iou > best_lat_iou:
+                    best_lat_iou = iou
+                    best_lat_p = p
+                    
+            for p in frame_meta["visible_pieces"]:
+                if p == best_lat_p:
+                    continue
+                other_box = p.get("bbox_frontal_norm")
+                if not other_box:
+                    continue
+                ox1 = max(0, min(int(other_box[0] * w_l_s), w_l_s - 1))
+                oy1 = max(0, min(int(other_box[1] * h_l_s), h_l_s - 1))
+                ox2 = max(0, min(int(other_box[2] * w_l_s), w_l_s - 1))
+                oy2 = max(0, min(int(other_box[3] * h_l_s), h_l_s - 1))
+                img_lat_np[oy1:oy2, ox1:ox2] = 0
+                    
+            cx_l = (lx1_s + lx2_s) * 0.5
+            cy_l = (ly1_s + ly2_s) * 0.5
+            sam_results_lat = sam_model(img_lat_np, bboxes=[[lx1_s, ly1_s, lx2_s, ly2_s]], points=[[[cx_l, cy_l]]], labels=[[1]], verbose=False)
+            if sam_results_lat and sam_results_lat[0].masks is not None:
+                mask_data_lat = sam_results_lat[0].masks.data[0].cpu().numpy()
+                mask_img_arr_lat = (mask_data_lat * 255).astype(np.uint8)
+                mask_pil_lat = Image.fromarray(mask_img_arr_lat).crop((lx1_s, ly1_s, lx2_s, ly2_s))
+                b64_sam_mask_lat = to_b64(mask_pil_lat, format="PNG")
+            
     except Exception as e:
-        print(f"[WARNING] Error generacion SAM mask: {e}")
-        b64_sam_mask = b64_crop_cen
+        print(f"[WARNING] Error generación SAM masks: {e}")
+        
+    from collections import Counter
+    colors_cen_votes = [obs.get("color_cenital", obs.get("color", "Unknown")) for obs in history]
+    colors_lat_votes = [obs.get("color_lateral", "N/A") for obs in history if obs.get("color_lateral", "N/A") != "N/A"]
+    avg_color_cenital = Counter(colors_cen_votes).most_common(1)[0][0] if colors_cen_votes else "Unknown"
+    avg_color_lateral = Counter(colors_lat_votes).most_common(1)[0][0] if colors_lat_votes else "N/A"
+    
+    # 5.1 Seleccionar 5 observaciones equidistantes en distancia cenital de avance (eje X)
+    sorted_history = sorted(history, key=lambda h: (h["bbox_cen"][0] + h["bbox_cen"][2]) * 0.5)
+    n_obs = len(sorted_history)
+    selected_obs = []
+    
+    if n_obs <= 5:
+        selected_obs = sorted_history
+    else:
+        x_positions = [(h["bbox_cen"][0] + h["bbox_cen"][2]) * 0.5 for h in sorted_history]
+        min_x = x_positions[0]
+        max_x = x_positions[-1]
+        target_x_values = [min_x + (max_x - min_x) * (i / 4.0) for i in range(5)]
+        
+        for tx in target_x_values:
+            best_h = min(sorted_history, key=lambda h: abs(((h["bbox_cen"][0] + h["bbox_cen"][2]) * 0.5) - tx))
+            if best_h not in selected_obs:
+                selected_obs.append(best_h)
+            else:
+                remaining = [h for h in sorted_history if h not in selected_obs]
+                if remaining:
+                    best_h = min(remaining, key=lambda h: abs(((h["bbox_cen"][0] + h["bbox_cen"][2]) * 0.5) - tx))
+                    selected_obs.append(best_h)
+        # Volver a ordenar
+        selected_obs = sorted(selected_obs, key=lambda h: (h["bbox_cen"][0] + h["bbox_cen"][2]) * 0.5)
 
-    # Crops frontal
-    w_l, h_l = img_lat.size
-    bbox_lat = best_obs["bbox_lat"]
-    lx1, ly1 = int(bbox_lat[0] * w_l), int(bbox_lat[1] * h_l)
-    lx2, ly2 = int(bbox_lat[2] * w_l), int(bbox_lat[3] * h_l)
-    img_crop_lat = img_lat.crop((lx1, ly1, lx2, ly2))
-    
-    # Base64
-    b64_cen_overlay = to_b64(img_cen_overlay)
-    b64_lat_overlay = to_b64(img_lat_overlay)
-    b64_crop_lat = to_b64(img_crop_lat)
-    
+    sequence_html = ""
+    for idx, obs in enumerate(selected_obs):
+        f_id = obs["frame_id"]
+        f_key = f"{f_id}.png"
+        if f_key not in frames_meta:
+            f_key = f"{f_id}.jpg"
+        if f_key not in frames_meta:
+            continue
+        f_meta = frames_meta[f_key]
+        
+        path_c = os.path.join(data_dir, f_meta["file_name"])
+        path_l = os.path.join(data_dir, f_meta["file_name_frontal"])
+        
+        b64_seq_cen = ""
+        b64_seq_lat = ""
+        
+        if os.path.exists(path_c):
+            try:
+                img_c_raw = Image.open(path_c)
+                w_c, h_c = img_c_raw.size
+                box_c = obs["bbox_cen"]
+                cx1 = max(0, int(box_c[0] * w_c))
+                cy1 = max(0, int(box_c[1] * h_c))
+                cx2 = min(w_c, int(box_c[2] * w_c))
+                cy2 = min(h_c, int(box_c[3] * h_c))
+                if cx2 > cx1 and cy2 > cy1:
+                    img_crop_c = img_c_raw.crop((cx1, cy1, cx2, cy2))
+                    b64_seq_cen = to_b64(img_crop_c)
+            except Exception as e:
+                print(f"[WARNING] Error en seq crop cenital: {e}")
+            
+        if os.path.exists(path_l):
+            try:
+                img_l_raw = Image.open(path_l)
+                w_l, h_l = img_l_raw.size
+                box_l = obs["bbox_lat"]
+                lx1 = max(0, int(box_l[0] * w_l))
+                ly1 = max(0, int(box_l[1] * h_l))
+                lx2 = min(w_l, int(box_l[2] * w_l))
+                ly2 = min(h_l, int(box_l[3] * h_l))
+                if lx2 > lx1 and ly2 > ly1:
+                    img_crop_l = img_l_raw.crop((lx1, ly1, lx2, ly2))
+                    b64_seq_lat = to_b64(img_crop_l)
+            except Exception as e:
+                print(f"[WARNING] Error en seq crop lateral: {e}")
+            
+        cx_val = (obs["bbox_cen"][0] + obs["bbox_cen"][2]) * 0.5
+        
+        frontal_img_tag = f"""
+            <div style="margin-top: 10px;">
+                <img src="data:image/jpeg;base64,{b64_seq_lat}" style="max-height: 80px; max-width: 100%; border-radius: 6px; border: 1px solid var(--border-color);" alt="Frontal Crop">
+                <div style="font-size: 10px; color: var(--text-secondary); margin-top: 4px;">Frontal</div>
+            </div>
+        """ if b64_seq_lat else ""
+        
+        sequence_html += f"""
+        <div style="flex: 1; min-width: 150px; background-color: rgba(255,255,255,0.03); border: 1px solid var(--border-color); border-radius: 12px; padding: 12px; text-align: center;">
+            <div style="font-weight: 600; color: var(--accent); margin-bottom: 8px;">Paso {idx+1}</div>
+            <div style="font-size: 11px; color: var(--text-secondary); margin-bottom: 12px;">{f_id}<br>Avance X: {cx_val:.3f}</div>
+            
+            <div style="margin-bottom: 10px;">
+                <img src="data:image/jpeg;base64,{b64_seq_cen}" style="max-height: 80px; max-width: 100%; border-radius: 6px; border: 1px solid var(--border-color);" alt="Cenital Crop">
+                <div style="font-size: 10px; color: var(--text-secondary); margin-top: 4px;">Cenital</div>
+            </div>
+            {frontal_img_tag}
+        </div>
+        """
+
     # 6. Generar filas de observaciones individuales
     obs_rows = ""
     for idx, obs in enumerate(history):
@@ -518,8 +745,14 @@ def generate_html_report(
                     </thead>
                     <tbody>
                         <tr>
-                            <td><strong>Referencia de Pieza</strong></td>
-                            <td><span class="badge badge-ok">{gt_ref}</span></td>
+                            <td><strong>Referencia (Paramétrica)</strong></td>
+                            <td><span class="badge badge-neutral">{gt_ref}</span></td>
+                            <td><span class="badge badge-ok">{ref_parametrica}</span></td>
+                            <td>{"" if gt_ref == ref_parametrica else "✗ Mismatch"}</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Referencia (EfficientNet)</strong></td>
+                            <td><span class="badge badge-neutral">{gt_ref}</span></td>
                             <td><span class="badge badge-ok">{track_data['referencia_detectada']} (Pose {track_data['pose_identificada']})</span></td>
                             <td>{"" if gt_ref == track_data['referencia_detectada'] else "✗ Mismatch"}</td>
                         </tr>
@@ -536,9 +769,21 @@ def generate_html_report(
                             <td><span class="badge {badge_h_agg}">{err_height_pct:+.1f}%</span></td>
                         </tr>
                         <tr>
-                            <td><strong>Color Inferido</strong></td>
+                            <td><strong>Color Cenital (Media)</strong></td>
                             <td>{gt_color}</td>
-                            <td>{track_data['color']}</td>
+                            <td>{avg_color_cenital}</td>
+                            <td>—</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Color Frontal (Media)</strong></td>
+                            <td>{gt_color}</td>
+                            <td>{avg_color_lateral}</td>
+                            <td>—</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Color Final Fusionado</strong></td>
+                            <td><strong>{gt_color}</strong></td>
+                            <td><strong style="color: var(--accent);">{track_data['color']}</strong></td>
                             <td>—</td>
                         </tr>
                         <tr>
@@ -557,12 +802,16 @@ def generate_html_report(
                         <div class="image-label">Cenital</div>
                     </div>
                     <div class="crop-container">
-                        <img src="data:image/png;base64,{b64_sam_mask}" alt="Máscara SAM">
-                        <div class="image-label">Máscara SAM</div>
+                        <img src="data:image/png;base64,{b64_sam_mask}" alt="SAM Cenital">
+                        <div class="image-label">SAM Cenital</div>
                     </div>
                     <div class="crop-container">
                         <img src="data:image/jpeg;base64,{b64_crop_lat}" alt="Crop Frontal">
                         <div class="image-label">Frontal</div>
+                    </div>
+                    <div class="crop-container">
+                        <img src="data:image/png;base64,{b64_sam_mask_lat}" alt="SAM Frontal">
+                        <div class="image-label">SAM Frontal</div>
                     </div>
                 </div>
             </div>
@@ -595,6 +844,15 @@ def generate_html_report(
                 <li><strong>Frame Más Centrado (🎯):</strong> Es el instante donde la pieza pasa exactamente por la línea centro del FoV (mínima distorsión radial). Este frame es el prioritario y óptimo para capturar las dimensiones físicas de la base de datos.</li>
                 <li><strong>Inferencia Agregada Final:</strong> En lugar de basarse en un único frame ruidoso, el sistema realiza un seguimiento temporal (Tracking ID) acumulando la información de toda la trayectoria y consolidando la predicción mediante filtros de consistencia y promedios ponderados.</li>
             </ul>
+        </div>
+        
+        <!-- Secuencia de Avance (5 Imágenes Equidistantes) -->
+        <div class="card" style="margin-top: 30px; margin-bottom: 30px;">
+            <h2>Secuencia de Avance (5 Observaciones Equidistantes en Avance Cenital)</h2>
+            <p style="color: var(--text-secondary); margin-bottom: 20px;">Muestreo de 5 fotogramas distribuidos de forma regular a lo largo del recorrido en el eje X (independientemente de la velocidad de avance).</p>
+            <div style="display: flex; gap: 15px; justify-content: space-between; overflow-x: auto; padding-bottom: 10px;">
+                {sequence_html}
+            </div>
         </div>
         
         <!-- Tabla Inferior: Historial por Frame -->
@@ -662,6 +920,10 @@ def main():
         print("[WARNING] El consolidado no contiene piezas. Runcorrect the pipeline first.")
         return
         
+    print("Cargando DB para inferencia paramétrica...")
+    from scripts.inferencia_neuronal import load_db_universe
+    poses_db, colors_db = load_db_universe(None)
+        
     # Selección de IDs a reportar
     selected_tids = []
     if args.tracking_id:
@@ -680,7 +942,7 @@ def main():
     generated_files = []
     for tid in selected_tids:
         try:
-            report_file = generate_html_report(tracks[tid], metadata, args.data_dir, args.out_dir)
+            report_file = generate_html_report(tracks[tid], metadata, args.data_dir, args.out_dir, poses_db, colors_db)
             if report_file:
                 generated_files.append(report_file)
         except Exception as e:

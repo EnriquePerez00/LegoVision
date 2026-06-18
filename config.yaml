@@ -430,3 +430,16 @@ sets:
     - "75018-1"
     - "6008-1"
   default_set_id: "75078-1"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 12. LIGHTNING AI (Entrenamiento Remoto)
+# ─────────────────────────────────────────────────────────────────────────────
+lightning:
+  studio_name: "legovision-t4"
+  teamspace: "enriqueperezbcn1973"
+  check_interval_minutes: 15
+  optimization_t4:
+    device: "cuda"
+    batch_size: 64
+    workers: 4
+    amp: true

@@ -292,39 +292,48 @@ def hex_to_rgb(hex_str: str) -> np.ndarray:
     return np.array([128.0, 128.0, 128.0], dtype=np.float32)
 
 def estimate_color_hsv(img: Any, mask: np.ndarray) -> Tuple[np.ndarray, Tuple[float, float, float]]:
-    """Estima el color medio en RGB y HSV aplicando erosión morfológica (sin bordes) y filtrando especularidades."""
+    """Estima el color medio en RGB y HSV aplicando erosión morfológica, filtrando centro y especularidades."""
     if isinstance(img, np.ndarray):
         img_arr = img
     else:
         img_arr = np.array(img.convert("RGB"))
     
-    # 1. Aplicar erosión morfológica en la máscara para eliminar bordes fundidos con el fondo negro
+    # 1. Aplicar erosión morfológica en la máscara
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
     eroded_mask = cv2.erode(mask, kernel, iterations=1)
     
-    # Si erosionar borró toda la máscara, revertir a la máscara original
     mask_to_use = eroded_mask if np.any(eroded_mask > 0) else mask
     mask_bool = (mask_to_use > 0)
     
     if not np.any(mask_bool):
         return np.array([128.0, 128.0, 128.0]), (0.0, 0.0, 0.0)
         
+    # Extraer el núcleo central del 40%
+    ys, xs = np.where(mask_bool)
+    ymin, ymax, xmin, xmax = ys.min(), ys.max(), xs.min(), xs.max()
+    h, w = ymax - ymin, xmax - xmin
+    cy, cx = ymin + h//2, xmin + w//2
+    h_crop, w_crop = int(max(1, h * 0.4)), int(max(1, w * 0.4))
+    
+    central_mask = np.zeros_like(mask_bool)
+    central_mask[max(0, cy - h_crop//2):cy + h_crop//2, max(0, cx - w_crop//2):cx + w_crop//2] = True
+    core_mask = mask_bool & central_mask
+    
+    if np.any(core_mask):
+        mask_bool = core_mask
+        
     pixels_rgb = img_arr[mask_bool]
     
-    # Conversión a HSV en OpenCV
     hsv_img = cv2.cvtColor(img_arr, cv2.COLOR_RGB2HSV)
     pixels_hsv = hsv_img[mask_bool]
     
-    # 2. Filtrar especularidades (brillos blancos/neutros muy intensos):
-    # Descartar píxeles con saturación muy baja y valor/brillo muy alto en HSV
-    # S_range = [0, 255], V_range = [0, 255]
-    non_specular_mask = (pixels_hsv[:, 1] >= 25) | (pixels_hsv[:, 2] < 230)
+    # Filtrar sombras absolutas (< 15) y brillos extremos (> 245) para no perder negros y blancos
+    valid_color_mask = (pixels_hsv[:, 2] > 15) & (pixels_hsv[:, 2] < 245)
     
-    if np.any(non_specular_mask):
-        pixels_rgb_filtered = pixels_rgb[non_specular_mask]
-        pixels_hsv_filtered = pixels_hsv[non_specular_mask]
+    if np.any(valid_color_mask):
+        pixels_rgb_filtered = pixels_rgb[valid_color_mask]
+        pixels_hsv_filtered = pixels_hsv[valid_color_mask]
     else:
-        # Fallback si todos los píxeles se clasifican como especulares
         pixels_rgb_filtered = pixels_rgb
         pixels_hsv_filtered = pixels_hsv
         
@@ -614,18 +623,50 @@ def match_piece_hypothesis(
 # 8. Pipeline Principal y Procesamiento Secuencial
 # ─────────────────────────────────────────────────────────────────
 
-def run_pipeline(data_dir: str, output_path: str, belt_speed: float, fps: float, max_frames: Optional[int] = None):
+def run_pipeline(data_dir: str, output_path: str, belt_speed: float, fps: float, max_frames: Optional[int] = None, mode: str = "CLASSIC"):
     # Detección del dispositivo GPU
     device = "mps" if torch.backends.mps.is_available() else "cpu"
     log.info(f"Dispositivo PyTorch configurado: {device}")
     
     # Cargar modelos neuronales
     log.info("Cargando modelos YOLO y SAM...")
-    yolo_cen = YOLO(os.path.join(project_root, "models", "yolo_cenital.pt")).to(device)
-    yolo_lat = YOLO(os.path.join(project_root, "models", "yolo_lateral.pt")).to(device)
-    yolo_cen_pose = YOLO(os.path.join(project_root, "models", "yolo_cenital_pose.pt")).to(device)
-    yolo_lat_pose = YOLO(os.path.join(project_root, "models", "yolo_lateral_pose.pt")).to(device)
+    
+    def load_yolo_model(default_filename, fallback_filename=None):
+        # 1. Intentar cargar versión CoreML (.mlpackage) en macOS
+        coreml_filename = default_filename.replace(".pt", ".mlpackage")
+        coreml_path = os.path.join(project_root, "models", coreml_filename)
+        if os.path.exists(coreml_path):
+            log.info(f"Cargando modelo CoreML optimizado para Neural Engine: {coreml_filename}")
+            return YOLO(coreml_path)
+            
+        if fallback_filename:
+            fb_coreml_filename = fallback_filename.replace(".pt", ".mlpackage")
+            fb_coreml_path = os.path.join(project_root, "models", fb_coreml_filename)
+            if os.path.exists(fb_coreml_path):
+                log.info(f"Cargando modelo CoreML optimizado para Neural Engine: {fb_coreml_filename}")
+                return YOLO(fb_coreml_path)
+        
+        # 2. Fallback al modelo de PyTorch (.pt)
+        pt_path = os.path.join(project_root, "models", default_filename)
+        if os.path.exists(pt_path):
+            log.info(f"Cargando modelo PyTorch (.pt): {default_filename}")
+            return YOLO(pt_path).to(device)
+            
+        if fallback_filename:
+            fb_pt_path = os.path.join(project_root, "models", fallback_filename)
+            if os.path.exists(fb_pt_path):
+                log.info(f"Cargando modelo PyTorch (.pt) de respaldo: {fallback_filename}")
+                return YOLO(fb_pt_path).to(device)
+                
+        log.warning(f"No se encontró el modelo en {pt_path}, intentando carga directa...")
+        return YOLO(pt_path).to(device)
+
+    yolo_cen = load_yolo_model("yolo_cenital.pt")
+    yolo_lat = load_yolo_model("yolo_lateral.pt")
+    yolo_cen_pose = load_yolo_model("yolo_cenital_pose.pt")
+    yolo_lat_pose = load_yolo_model("yolo_lateral_pose.pt", "yolo_frontal_pose.pt")
     sam_model = SAM(os.path.join(legovic_root, "mobile_sam.pt")).to(device)
+
     
     log.info("Cargando clasificador neuro-simbólico EfficientNetV2-B0...")
     efficientnet_clf = LegoEfficientNetClassifier()
@@ -719,17 +760,21 @@ def run_pipeline(data_dir: str, output_path: str, belt_speed: float, fps: float,
         px_per_mm_lat = float(cfg.cameras.lateral.scale_px_per_mm) * (w_l / 2048.0)
         
         # 1. Detecciones YOLO Cenital e Inclinada
-        yolo_res_cen = yolo_cen(img_cen, verbose=False, conf=0.25)
-        yolo_res_lat = yolo_lat(img_lat, verbose=False, conf=0.25)
+        if mode == "CLASSIC":
+            yolo_res_cen = yolo_cen(img_cen, verbose=False, conf=0.25)
+            yolo_res_lat = yolo_lat(img_lat, verbose=False, conf=0.25)
+        else:
+            yolo_res_cen = yolo_cen_pose(img_cen, verbose=False, conf=0.25)
+            yolo_res_lat = yolo_lat_pose(img_lat, verbose=False, conf=0.25)
         
         n_cen = len(yolo_res_cen[0].boxes) if yolo_res_cen and yolo_res_cen[0].boxes is not None else 0
         n_lat = len(yolo_res_lat[0].boxes) if yolo_res_lat and yolo_res_lat[0].boxes is not None else 0
         if n_cen > 0 or n_lat > 0:
             log.info(f"[{fid}] Detecciones YOLO: Cenital={n_cen}, Lateral/Inclinada={n_lat}")
             
-        # Correr YOLO-Pose una vez por frame si hay detecciones
-        pose_res_cen = yolo_cen_pose(img_cen, verbose=False, conf=0.25) if n_cen > 0 else None
-        pose_res_lat = yolo_lat_pose(img_lat, verbose=False, conf=0.25) if n_lat > 0 else None
+        # Correr YOLO-Pose una vez por frame si hay detecciones (en POSE_ONLY/HYBRID ya es yolo_res_cen)
+        pose_res_cen = yolo_res_cen if mode in ["HYBRID", "POSE_ONLY"] else (yolo_cen_pose(img_cen, verbose=False, conf=0.25) if n_cen > 0 else None)
+        pose_res_lat = yolo_res_lat if mode in ["HYBRID", "POSE_ONLY"] else (yolo_lat_pose(img_lat, verbose=False, conf=0.25) if n_lat > 0 else None)
         
         detections_frame = []
         
@@ -785,15 +830,30 @@ def run_pipeline(data_dir: str, output_path: str, belt_speed: float, fps: float,
                     oy2 = max(0, min(int(other_bbox[3] * h_c), h_c - 1))
                     img_cen_np[oy1:oy2, ox1:ox2] = 0
                 
-                # SAM Cenital
+                # Segmentación Cenital (SAM o POSE_ONLY)
                 px1_c, py1_c = int(bbox_cen[0] * w_c), int(bbox_cen[1] * h_c)
                 px2_c, py2_c = int(bbox_cen[2] * w_c), int(bbox_cen[3] * h_c)
                 cx_c = (px1_c + px2_c) * 0.5
                 cy_c = (py1_c + py2_c) * 0.5
-                sam_res_cen = sam_model(img_cen_np, bboxes=[[px1_c, py1_c, px2_c, py2_c]], points=[[[cx_c, cy_c]]], labels=[[1]], verbose=False)
-                if not sam_res_cen or sam_res_cen[0].masks is None:
-                    continue
-                mask_cen = sam_res_cen[0].masks.data[0].cpu().numpy().astype(np.uint8)
+                
+                if mode == "POSE_ONLY":
+                    mask_cen = np.zeros((h_c, w_c), dtype=np.uint8)
+                    if pose_res_cen and pose_res_cen[0].keypoints is not None:
+                        kpts = pose_res_cen[0].keypoints.xy[i].cpu().numpy()
+                        valid_kpts = [pt for pt in kpts if pt[0] > 0 and pt[1] > 0]
+                        if len(valid_kpts) >= 3:
+                            pts = np.array(valid_kpts, np.int32)
+                            hull = cv2.convexHull(pts)
+                            cv2.fillConvexPoly(mask_cen, hull, 1)
+                        else:
+                            cv2.rectangle(mask_cen, (px1_c, py1_c), (px2_c, py2_c), 1, -1)
+                    else:
+                        cv2.rectangle(mask_cen, (px1_c, py1_c), (px2_c, py2_c), 1, -1)
+                else:
+                    sam_res_cen = sam_model(img_cen_np, bboxes=[[px1_c, py1_c, px2_c, py2_c]], points=[[[cx_c, cy_c]]], labels=[[1]], verbose=False)
+                    if not sam_res_cen or sam_res_cen[0].masks is None:
+                        continue
+                    mask_cen = sam_res_cen[0].masks.data[0].cpu().numpy().astype(np.uint8)
                 
                 # Tight crop cenital using SAM mask and black background masking
                 img_cen_proc_np = np.array(img_cen.convert("RGB"))
@@ -842,9 +902,23 @@ def run_pipeline(data_dir: str, output_path: str, belt_speed: float, fps: float,
                     cx_l = (px1_l + px2_l) * 0.5
                     cy_l = (py1_l + py2_l) * 0.5
                     
-                    sam_res_lat = sam_model(img_lat_np, bboxes=[[px1_l, py1_l, px2_l, py2_l]], points=[[[cx_l, cy_l]]], labels=[[1]], verbose=False)
-                    if sam_res_lat and sam_res_lat[0].masks is not None:
-                        mask_lat = sam_res_lat[0].masks.data[0].cpu().numpy().astype(np.uint8)
+                    if mode == "POSE_ONLY":
+                        mask_lat = np.zeros((h_l, w_l), dtype=np.uint8)
+                        if pose_res_lat and pose_res_lat[0].keypoints is not None:
+                            kpts_l = pose_res_lat[0].keypoints.xy[best_lat_idx].cpu().numpy()
+                            valid_kpts_l = [pt for pt in kpts_l if pt[0] > 0 and pt[1] > 0]
+                            if len(valid_kpts_l) >= 3:
+                                pts_l = np.array(valid_kpts_l, np.int32)
+                                hull_l = cv2.convexHull(pts_l)
+                                cv2.fillConvexPoly(mask_lat, hull_l, 1)
+                            else:
+                                cv2.rectangle(mask_lat, (px1_l, py1_l), (px2_l, py2_l), 1, -1)
+                        else:
+                            cv2.rectangle(mask_lat, (px1_l, py1_l), (px2_l, py2_l), 1, -1)
+                    else:
+                        sam_res_lat = sam_model(img_lat_np, bboxes=[[px1_l, py1_l, px2_l, py2_l]], points=[[[cx_l, cy_l]]], labels=[[1]], verbose=False)
+                        if sam_res_lat and sam_res_lat[0].masks is not None:
+                            mask_lat = sam_res_lat[0].masks.data[0].cpu().numpy().astype(np.uint8)
                         # Tight crop lateral using SAM mask and black background masking
                         img_lat_proc_np = np.array(img_lat.convert("RGB"))
                         img_lat_proc_np[mask_lat == 0] = [0, 0, 0]
@@ -937,7 +1011,7 @@ def run_pipeline(data_dir: str, output_path: str, belt_speed: float, fps: float,
                 if d_idx in matched_detections:
                     continue
                 dist = math.sqrt((det["centroid_mm"][0] - pred_x)**2 + (det["centroid_mm"][1] - pred_y)**2)
-                if dist < best_dist and dist < 45.0:
+                if dist < best_dist and dist < 85.0:
                     best_dist = dist
                     best_det_idx = d_idx
             
@@ -968,7 +1042,7 @@ def run_pipeline(data_dir: str, output_path: str, belt_speed: float, fps: float,
         still_active = []
         for track in active_tracks:
             pred_x_exit = track["last_centroid"][0] - dx_belt
-            if pred_x_exit < -110.0 or track["consecutive_misses"] >= 2:
+            if pred_x_exit < -110.0 or track["consecutive_misses"] >= 5:
                 finished_tracks.append(track)
             else:
                 still_active.append(track)
@@ -1094,6 +1168,7 @@ if __name__ == "__main__":
     parser.add_argument("--belt_speed", type=float, default=83.3, help="Velocidad de cinta en mm/s (por defecto 83.3).")
     parser.add_argument("--fps", type=float, default=5.0, help="Frames por segundo de captura (por defecto 5.0).")
     parser.add_argument("--max_frames", type=int, default=None, help="Número máximo de frames a procesar.")
+    parser.add_argument("--mode", type=str, default="CLASSIC", choices=["CLASSIC", "HYBRID", "POSE_ONLY"], help="Modo de inferencia")
     args = parser.parse_args()
     
     # Comprobación de directorio de frames absoluto de reserva
@@ -1101,4 +1176,4 @@ if __name__ == "__main__":
     if not os.path.exists(data_dir_path):
         data_dir_path = "/data/frames/"
         
-    run_pipeline(data_dir_path, args.output, args.belt_speed, args.fps, args.max_frames)
+    run_pipeline(data_dir_path, args.output, args.belt_speed, args.fps, args.max_frames, args.mode)

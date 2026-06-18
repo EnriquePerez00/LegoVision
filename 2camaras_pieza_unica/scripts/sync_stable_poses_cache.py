@@ -68,8 +68,8 @@ sys.path.insert(0, os.path.join(legovic_root, "database"))
 from supabase_client import get_connection  # noqa: E402
 
 
-def fetch_poses_from_db(set_id: str, require_stable: bool = True):
-    where_stable = "AND is_stable = TRUE" if require_stable else ""
+def fetch_poses_from_db(require_stable: bool = True):
+    where_stable = "WHERE is_stable = TRUE" if require_stable else ""
     sql = f"""
         SELECT part_ref, pose_index, contact_normal, face_class, contact_area,
                orientation_quat, orientation_euler,
@@ -79,14 +79,14 @@ def fetch_poses_from_db(set_id: str, require_stable: bool = True):
                zenith_bbox_area, lateral_height,
                effective_height, efective_height,
                contact_stable_length, contact_stable_width,
-               set_id, is_stable
+               is_stable
         FROM stable_poses
-        WHERE set_id = %s {where_stable}
+        {where_stable}
         ORDER BY part_ref, pose_index
     """
     out = {}
     with get_connection() as conn, conn.cursor() as cur:
-        cur.execute(sql, (set_id,))
+        cur.execute(sql)
         for row in cur.fetchall():
             ref = row["part_ref"]
             out.setdefault(ref, []).append(dict(row))
@@ -123,11 +123,11 @@ def main():
     print(f"  legacy_min_contact_dim_mm= {args.legacy_min_contact_dim_mm}  (0=off)")
     print("=" * 70)
 
-    poses_by_ref = fetch_poses_from_db(args.set_id, require_stable=args.require_stable)
+    poses_by_ref = fetch_poses_from_db(require_stable=args.require_stable)
     if not poses_by_ref:
         print("[ERROR] ninguna pose obtenida de la BD.")
         sys.exit(1)
-    print(f"[OK] {len(poses_by_ref)} part_refs en BD para set {args.set_id}.")
+    print(f"[OK] {len(poses_by_ref)} part_refs en BD.")
 
     output = {}
     stats = {
@@ -192,7 +192,6 @@ def main():
                 "contact_stable_length":  float(p["contact_stable_length"])  if p.get("contact_stable_length")  is not None else None,
                 "contact_stable_width":   float(cw)                          if cw is not None else None,
                 "is_stable":              bool(p.get("is_stable", True)),
-                "set_id":                 p.get("set_id"),
             })
 
         # Renumerar pose_index 0..N-1 tras filtrado (si lo hubo)

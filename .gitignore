@@ -261,3 +261,14 @@ docker-volumes/
 # Excepción: si existe un subarchivo .gitkeep dentro de subdirs, preservarlo
 !2camaras_random_pieza_unica/renders/**/.gitkeep
 !2camaras_random_pieza_unica/reports/**/.gitkeep
+# Large data files
+camara_domo/data/domo_training_data.zip
+camara_domo/data/yolo_dataset_cenital/
+camara_domo/data/yolo_dataset_frontal/
+camara_domo/data/yolo_dataset_test2/
+camara_domo/data/data10/
+models/yolo_cenital_pose.pt
+models/yolo_frontal_pose.pt
+models/train_runs/
+blender_out.txt
+jobs.txt

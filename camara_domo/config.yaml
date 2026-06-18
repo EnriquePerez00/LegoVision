@@ -2644,7 +2644,7 @@ stable_poses:
   render_min_stability: 0.01
   min_contact_dimension_mm: 4.0
 inference:
-  camara_lateral: false
+  camara_lateral: true
   evaluation_script: scripts/run_evaluation.py
   report_output: data/eval_report.json
   calibration:

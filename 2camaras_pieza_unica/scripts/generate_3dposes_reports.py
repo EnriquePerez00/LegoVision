@@ -103,15 +103,15 @@ def fetch_all_poses_from_db(set_id: str) -> dict:
                orientation_quat, orientation_euler, stability_ratio,
                zenith_observable_area, zenith_bbox_area, lateral_height,
                contact_stable_length, contact_stable_width,
-               set_id, is_stable
+               is_stable
         FROM stable_poses
-        WHERE set_id = %s AND is_stable = TRUE
+        WHERE is_stable = TRUE
         ORDER BY part_ref, pose_index
     """
     from supabase_client import get_connection
     out = {}
     with get_connection() as conn, conn.cursor() as cur:
-        cur.execute(sql, (set_id,))
+        cur.execute(sql)
         for row in cur.fetchall():
             ref = row["part_ref"]
             pose = {
@@ -128,7 +128,6 @@ def fetch_all_poses_from_db(set_id: str) -> dict:
                 "lateral_height":         float(row["lateral_height"]) if row["lateral_height"] is not None else None,
                 "contact_stable_length":  float(row["contact_stable_length"]) if row["contact_stable_length"] is not None else None,
                 "contact_stable_width":   float(row["contact_stable_width"]) if row["contact_stable_width"] is not None else None,
-                "set_id":                 row["set_id"],
             }
             out.setdefault(ref, []).append(pose)
     return out
@@ -228,32 +227,20 @@ def get_part_triangles_blender(ref: str) -> np.ndarray:
             flat_ldr = tris_ldr.reshape(-1, 3)
             flat_bl  = ldraw_to_blender(flat_ldr)
             return flat_bl.reshape(-1, 3, 3)
-
-    # Fallback: caja en LDU → convertir a Blender space
-    defaults_ldu = {
-        "3001": (80,32,24), "3002": (60,32,24), "3003": (40,32,24),
-        "3004": (20,32,24), "3005": (20,20,24), "3010": (80,20,24),
-        "3020": (80,40, 8), "3021": (60,40, 8), "3022": (40,40, 8),
-        "3023": (40,20, 8), "3024": (20,20, 8), "3069": (40,20, 8),
-        "3068": (40,40, 8), "2431": (80,20, 8), "3710": (80,20, 8),
-        "3622": (60,20,24), "3039": (40,40,24), "6141": (20,20, 8),
-        "4032": (40,40, 8),
-    }
-    # Caja: (X_ldr, Z_ldr, Y_ldr) → en Blender (X, -Z, -Y) con los dims del dict
-    lx, lz, ly = defaults_ldu.get(ref, (40, 40, 24))
-    return get_box_triangles_blender((lx, lz, ly))
+    # Fallback a caja si no hay malla LDraw
+    # Usamos dimensiones por defecto de 20x20x20 LDU (1 stud) si no se puede determinar
+    dims = (20.0, 20.0, 20.0)
+    return get_box_triangles_blender(dims)
 
 
-# ── Proyecciones ortográficas 2D ───────────────────────────────────────────────
-# Vista cenital (TOP): mirando desde +Z hacia abajo en Blender space.
-#   sx = X, sy = -Y  (Y de Blender invertida porque SVG-Y crece hacia abajo,
-#   y queremos que +Y_Blender (forward) aparezca arriba en pantalla)
 def project_top(pts3d: np.ndarray) -> np.ndarray:
+    # Cenital pura: el centro (0,0) es la mitad de la imagen, no depende del bounding box
     return np.column_stack([pts3d[:, 0], -pts3d[:, 1]])
 
-# Vista lateral (SIDE): mirando desde +Y hacia -Y, plano XZ.
-#   sx = X, sy = -Z  (Z hacia arriba en pantalla)
+
 def project_side(pts3d: np.ndarray) -> np.ndarray:
+    # Vista lateral desde la superficie de apoyo (Z=0)
+    # sx = X, sy = -Z
     return np.column_stack([pts3d[:, 0], -pts3d[:, 2]])
 
 # Direcciones de vista (hacia el observador) en Blender space
@@ -263,25 +250,51 @@ SIDE_VIEW_DIR_BL = np.array([0.0, 1.0, 0.0], dtype=np.float64)  # mira desde +Y
 
 def _prepare_tris(ref: str, pose: dict) -> np.ndarray:
     """
-    Carga la malla de la pieza, aplica el quaternión, deja la pose reposando
+    Carga la malla de la pieza, aplica el quaternión, deja la pieza reposando
     sobre Z=0 y centra en X,Y. Devuelve array (N, 3, 3) de triángulos en Blender space.
     """
     tris_bl = get_part_triangles_blender(ref)
 
-    quat = pose.get("orientation_quat")
-    if quat and len(quat) == 4:
-        R = quat_to_matrix(quat)
-        flat = tris_bl.reshape(-1, 3)
-        tris_rot = (R @ flat.T).T.reshape(-1, 3, 3)
+    # Corregir error de quaternión identidad inconsistente en la base de datos
+    # Calculando el quaternión analítico determinista a partir de contact_normal
+    cn = pose.get("contact_normal")
+    if cn and len(cn) == 3:
+        # En LDraw space la normal apunta hacia el plano de contacto. Queremos rotarla
+        # para que apunte hacia abajo (-Y en LDraw space).
+        # Pero estamos en Blender space. La función rotation_quat_from_contact_normal
+        # está pensada para la mesh en LDraw space (donde target_down es -Y_ldr, o sea,
+        # (0, -1, 0) o similar).
+        # Vamos a importarla de _pose_utils que ya tiene la lógica correcta de Rodrigues.
+        from _pose_utils import rotation_quat_from_contact_normal
+        # contact_normal está en LDraw space en la base de datos.
+        # Queremos el cuaternión en Blender space para rotar los triángulos ya convertidos a Blender space.
+        # Alternativamente, podemos aplicar la rotación determinista en LDraw space y luego
+        # convertir a Blender space. ¡Eso es más robusto!
+        # Vamos a hacerlo:
+        tris_ldr = get_triangles(ref)
+        if tris_ldr is None or len(tris_ldr) == 0:
+            dims = (20.0, 20.0, 20.0)
+            tris_bl = get_box_triangles_blender(dims)
+            tris_rot = tris_bl.copy()
+        else:
+            # 1. Rotar en LDraw space usando el quaternión de Rodrigues determinista
+            # En LDraw space, la normal de contacto debe acabar apuntando a (0, 1, 0) (down en LDraw)
+            q_ldr = rotation_quat_from_contact_normal(cn, target_down=(0.0, 1.0, 0.0))
+            R_ldr = quat_to_matrix(q_ldr)
+            flat_ldr = tris_ldr.reshape(-1, 3)
+            flat_rot_ldr = (R_ldr @ flat_ldr.T).T
+            # 2. Convertir los vértices rotados a Blender space
+            flat_rot_bl = ldraw_to_blender(flat_rot_ldr)
+            tris_rot = flat_rot_bl.reshape(-1, 3, 3)
     else:
         tris_rot = tris_bl.copy()
 
-    # Apoyar en Z=0
+    # Apoyar en Z=0 (plano de contacto de la pose estable)
     all_verts = tris_rot.reshape(-1, 3)
     z_min = all_verts[:, 2].min()
     tris_rot = tris_rot - np.array([0.0, 0.0, z_min])
 
-    # Centrar X,Y
+    # Centrar X,Y en 0.0, 0.0 Blender-space
     all_verts = tris_rot.reshape(-1, 3)
     cx = (all_verts[:, 0].max() + all_verts[:, 0].min()) / 2
     cy = (all_verts[:, 1].max() + all_verts[:, 1].min()) / 2
@@ -294,10 +307,6 @@ def _compute_shared_scale(tris_rot: np.ndarray, size: int, margin: int = 20) -> 
     Calcula UN ÚNICO factor de escala (px/mm o px/LDU) que se aplicará a las dos
     vistas (cenital y lateral) para que las dimensiones físicas de la pieza
     se preserven entre ellas.
-
-    Estrategia: tomar la mayor extensión 2D entre las dos proyecciones y
-    encajarla en `canvas` aplicando el factor estético 0.90 (igual que la vista
-    isométrica original).
     """
     canvas = size - 2 * margin
     all_verts = tris_rot.reshape(-1, 3)
@@ -327,11 +336,6 @@ def _render_orthographic_svg(tris_rot: np.ndarray,
                              scale: float = None) -> str:
     """
     Renderiza una vista ortográfica (cenital o lateral) en SVG.
-    - project_fn: función Blender(N,3) → pantalla(N,2)
-    - view_dir:   dirección hacia el observador (Blender space, normalizada)
-    - draw_ground: si True dibuja una línea horizontal indicando Z=0 (vista lateral)
-    - scale:      factor de escala precalculado (compartido entre vistas).
-                  Si es None se calcula auto-fit individual (modo legacy).
     """
     margin = 20
     canvas = size - 2 * margin
@@ -348,15 +352,27 @@ def _render_orthographic_svg(tris_rot: np.ndarray,
         return _empty_svg(size)
 
     if scale is None:
-        # Modo auto-fit por vista (LEGACY — escalas no consistentes entre vistas)
         scale = min(canvas / span[0], canvas / span[1]) * 0.90
 
-    # El centrado (offset) se calcula por vista para que cada proyección
-    # quede centrada en su canvas, pero la ESCALA se mantiene compartida.
-    offset = np.array([
-        margin + (canvas - span[0] * scale) / 2 - mn[0] * scale,
-        margin + (canvas - span[1] * scale) / 2 - mn[1] * scale,
-    ])
+    # Configuración de offsets específicos
+    if draw_ground:
+        # Vista lateral: Alinear plano Z=0 (suelo) exactamente al nivel inferior del canvas (size - margin)
+        # sy = -Z -> min Z es 0 -> max Z proyectada (-Z) es 0.
+        # Deseamos que Z=0 (que se proyecta a 0) se dibuje en y = size - margin.
+        # Por tanto, offset_y = size - margin
+        offset = np.array([
+            size / 2.0,                  # Centrado en X
+            size - margin - 10.0         # Suelo alineado a la base del canvas
+        ])
+    else:
+        # Vista cenital (TOP): Forzar centro en el punto 0.0, 0.0 de Blender-space
+        # La pieza ya está posicionada con el centro de la pose estable en 0,0,0
+        # Así que proyectar 0.0, 0.0 da 0.0, 0.0. Queremos que este origen 3D se sitúe
+        # exactamente en el centro de la imagen (size/2, size/2).
+        offset = np.array([
+            size / 2.0,
+            size / 2.0
+        ])
 
     # Painter's algorithm: ordenar por profundidad respecto a la dir. de vista
     n_tris = tris_rot.shape[0]
@@ -370,16 +386,28 @@ def _render_orthographic_svg(tris_rot: np.ndarray,
     ground_svg = ""
     if draw_ground:
         all_v = tris_rot.reshape(-1, 3)
-        x_ext = max(abs(all_v[:, 0].max()), abs(all_v[:, 0].min())) * 1.15
-        p0 = project_fn(np.array([[-x_ext, 0.0, 0.0]])) * scale + offset
-        p1 = project_fn(np.array([[ x_ext, 0.0, 0.0]])) * scale + offset
-        ground_svg = (f'<line x1="{p0[0,0]:.1f}" y1="{p0[0,1]:.1f}" '
-                      f'x2="{p1[0,0]:.1f}" y2="{p1[0,1]:.1f}" '
-                      f'stroke="rgba(120,140,165,0.55)" stroke-width="0.9" '
+        x_ext = max(abs(all_v[:, 0].max()), abs(all_v[:, 0].min())) * 1.50
+        # En project_side, Y_svg = -Z * scale + offset_y
+        # Para Z=0, Y_svg es simplemente offset[1]
+        y_ground = offset[1]
+        x0_ground = -x_ext * scale + offset[0]
+        x1_ground = x_ext * scale + offset[0]
+        ground_svg = (f'<line x1="{x0_ground:.1f}" y1="{y_ground:.1f}" '
+                      f'x2="{x1_ground:.1f}" y2="{y_ground:.1f}" '
+                      f'stroke="#b0bec5" stroke-width="1.5" '
                       f'stroke-dasharray="3,3"/>')
 
     polygons = []
     for tri_3d, _ in tri_depth_list:
+        # Si es vista lateral, filtrar triángulos que queden por debajo del suelo (Z < 0)
+        # En Blender space, la altura es Z (tri_3d[:, 2]). Si algún vértice o el baricentro
+        # está por debajo de 0, o si hacemos un recorte estricto.
+        # El usuario dice: "muestra unicamente la parte por encima de la superficie".
+        # Si algún vértice de un triángulo está por debajo de 0, podemos ignorarlo por completo
+        # o recortarlo. Omitir el triángulo completo si tiene vértices por debajo de Z < -1e-3 es simple y efectivo.
+        if draw_ground and np.any(tri_3d[:, 2] < -1e-3):
+            continue # Omitir partes sumergidas bajo el suelo
+
         e1 = tri_3d[1] - tri_3d[0]
         e2 = tri_3d[2] - tri_3d[0]
         n  = np.cross(e1, e2)
@@ -394,23 +422,33 @@ def _render_orthographic_svg(tris_rot: np.ndarray,
 
         # Iluminación
         diff    = max(0.0, float(np.dot(n, LIGHT_DIR_BL)))
-        ambient = 0.30
+        ambient = 0.55
         intensity = ambient + (1.0 - ambient) * diff
 
         r = min(255, int(base_rgb[0] * intensity))
         g = min(255, int(base_rgb[1] * intensity))
         b = min(255, int(base_rgb[2] * intensity))
-        sr = max(0, r - 25); sg = max(0, g - 25); sb = max(0, b - 25)
+        
+        # Borde luminoso para resaltar studs y huecos
+        stroke_str = "rgba(255,255,255,0.75)"
 
-        pts2d   = project_fn(tri_3d)
-        pts_svg = pts2d * scale + offset
+        # Proyectar
+        pts2d = []
+        for v in tri_3d:
+            if draw_ground:
+                # Vista lateral: X = v[0]*scale + offset_x, Y = -v[2]*scale + offset_y
+                pts2d.append([v[0], -v[2]])
+            else:
+                # Vista cenital: X = v[0]*scale + offset_x, Y = -v[1]*scale + offset_y
+                pts2d.append([v[0], -v[1]])
+        pts_svg = np.array(pts2d) * scale + offset
         pts_str = " ".join(f"{x:.1f},{y:.1f}" for x, y in pts_svg)
 
         polygons.append(
             f'<polygon points="{pts_str}" '
             f'fill="rgb({r},{g},{b})" '
-            f'stroke="rgb({sr},{sg},{sb})" '
-            f'stroke-width="0.35" stroke-linejoin="round"/>'
+            f'stroke="{stroke_str}" '
+            f'stroke-width="0.5" stroke-linejoin="round"/>'
         )
 
     return (
@@ -429,15 +467,18 @@ def _render_orthographic_svg(tris_rot: np.ndarray,
 
 def render_top_svg(ref: str, pose: dict, size: int = 200,
                    scale: float = None, tris_rot: np.ndarray = None) -> str:
-    """Vista cenital ortográfica (mirando desde +Z hacia abajo).
-    Si `scale` y `tris_rot` se proporcionan, se usan tal cual (modo compartido)."""
+    """Vista cenital ortográfica (mirando desde +Z hacia abajo)."""
     if tris_rot is None:
         tris_rot = _prepare_tris(ref, pose)
     if scale is None:
         scale = _compute_shared_scale(tris_rot, size)
     fc_low = (pose.get("face_class") or "side").lower()
-    color_map = {"top": (40, 140, 200), "bottom": (120, 70, 190), "side": (40, 90, 200)}
-    base_rgb = color_map.get(fc_low, (40, 90, 200))
+    color_map = {
+        "top":    (74, 185, 149),     # Verde menta/esmeralda luminoso
+        "bottom": (160, 116, 225),    # Violeta/lavanda claro
+        "side":   (91, 150, 241),     # Azul coral/celeste vivo
+    }
+    base_rgb = color_map.get(fc_low, (91, 150, 241))
     cn = pose.get("contact_normal") or []
     cn_str = f"n=[{','.join(f'{v:.2f}' for v in cn)}]" if cn else ""
     return _render_orthographic_svg(
@@ -448,15 +489,18 @@ def render_top_svg(ref: str, pose: dict, size: int = 200,
 
 def render_side_svg(ref: str, pose: dict, size: int = 200,
                     scale: float = None, tris_rot: np.ndarray = None) -> str:
-    """Vista lateral ortográfica (mirando desde +Y hacia -Y, plano XZ).
-    Si `scale` y `tris_rot` se proporcionan, se usan tal cual (modo compartido)."""
+    """Vista lateral ortográfica (mirando desde +Y hacia -Y, plano XZ)."""
     if tris_rot is None:
         tris_rot = _prepare_tris(ref, pose)
     if scale is None:
         scale = _compute_shared_scale(tris_rot, size)
     fc_low = (pose.get("face_class") or "side").lower()
-    color_map = {"top": (40, 140, 200), "bottom": (120, 70, 190), "side": (40, 90, 200)}
-    base_rgb = color_map.get(fc_low, (40, 90, 200))
+    color_map = {
+        "top":    (74, 185, 149),     # Verde menta/esmeralda luminoso
+        "bottom": (160, 116, 225),    # Violeta/lavanda claro
+        "side":   (91, 150, 241),     # Azul coral/celeste vivo
+    }
+    base_rgb = color_map.get(fc_low, (91, 150, 241))
     cn = pose.get("contact_normal") or []
     cn_str = f"n=[{','.join(f'{v:.2f}' for v in cn)}]" if cn else ""
     return _render_orthographic_svg(
@@ -485,22 +529,8 @@ def render_3d_svg(ref: str, pose: dict, size: int = 240) -> str:
     El quaternión ya está en Blender space (generado por Blender physics).
     La pieza se muestra reposando: Z mínimo = plano de contacto.
     """
-    # 1. Triángulos en Blender space (conversión LDraw→Blender ya aplicada)
-    tris_bl = get_part_triangles_blender(ref)   # (N, 3, 3)
-
-    # 2. Aplicar quaternión (Blender space → Blender world space rotado)
-    quat = pose.get("orientation_quat")
-    if quat and len(quat) == 4:
-        R = quat_to_matrix(quat)
-        flat = tris_bl.reshape(-1, 3)
-        tris_rot = (R @ flat.T).T.reshape(-1, 3, 3)
-    else:
-        tris_rot = tris_bl.copy()
-
-    # 3. Situar la pieza reposando: desplazar para que Z_min = 0 (plano de contacto)
-    all_verts = tris_rot.reshape(-1, 3)
-    z_min = all_verts[:, 2].min()
-    tris_rot = tris_rot - np.array([0.0, 0.0, z_min])
+    # Usar _prepare_tris que ya calcula correctamente la rotación determinista y la apoya en Z=0 centrada en X,Y.
+    tris_rot = _prepare_tris(ref, pose)
 
     # 4. Centrar en XY
     all_verts = tris_rot.reshape(-1, 3)
@@ -531,11 +561,11 @@ def render_3d_svg(ref: str, pose: dict, size: int = 240) -> str:
     # 6. Color base según face_class
     fc_low = (pose.get("face_class") or "side").lower()
     color_map = {
-        "top":    (40, 140, 200),
-        "bottom": (120, 70, 190),
-        "side":   (40, 90, 200),
+        "top":    (74, 185, 149),     # Verde menta/esmeralda luminoso
+        "bottom": (160, 116, 225),    # Violeta/lavanda claro
+        "side":   (91, 150, 241),     # Azul coral/celeste vivo
     }
-    base_rgb = color_map.get(fc_low, (40, 90, 200))
+    base_rgb = color_map.get(fc_low, (91, 150, 241))
 
     # 7. Painter's algorithm — ordenar por profundidad media (Y en Blender ≈ depth)
     def tri_depth(tri):
@@ -567,17 +597,15 @@ def render_3d_svg(ref: str, pose: dict, size: int = 240) -> str:
 
         # Iluminación difusa + ambiental
         diff    = max(0.0, float(np.dot(n, LIGHT_DIR_BL)))
-        ambient = 0.30
+        ambient = 0.55
         intensity = ambient + (1.0 - ambient) * diff
 
         r = min(255, int(base_rgb[0] * intensity))
         g = min(255, int(base_rgb[1] * intensity))
         b = min(255, int(base_rgb[2] * intensity))
 
-        # Pequeño borde más oscuro
-        sr = max(0, r - 25)
-        sg = max(0, g - 25)
-        sb = max(0, b - 25)
+        # Borde luminoso para resaltar studs y huecos en 3D
+        stroke_str = "rgba(255,255,255,0.75)"
 
         # Proyectar y escalar a SVG
         pts2d   = isometric_project(tri_3d)
@@ -587,8 +615,8 @@ def render_3d_svg(ref: str, pose: dict, size: int = 240) -> str:
         polygons.append(
             f'<polygon points="{pts_str}" '
             f'fill="rgb({r},{g},{b})" '
-            f'stroke="rgb({sr},{sg},{sb})" '
-            f'stroke-width="0.35" stroke-linejoin="round"/>'
+            f'stroke="{stroke_str}" '
+            f'stroke-width="0.5" stroke-linejoin="round"/>'
         )
 
     # 9. Plano de suelo (grid sutil)
@@ -918,6 +946,8 @@ def main():
                         help="Generar solo el report de una pieza concreta (ej. 2877)")
     parser.add_argument("--no-index", action="store_true",
                         help="No regenerar el índice (útil cuando se procesa una sola pieza)")
+    parser.add_argument("--limit", type=int, default=0,
+                        help="Limitar a un número aleatorio de piezas procesadas")
     args = parser.parse_args()
 
     os.makedirs(OUT_DIR, exist_ok=True)
@@ -937,6 +967,10 @@ def main():
         refs_to_process = [args.ref]
     else:
         refs_to_process = sorted(poses_by_ref.keys())
+        if args.limit > 0 and len(refs_to_process) > args.limit:
+            import random
+            refs_to_process = random.sample(refs_to_process, args.limit)
+            print(f"[INFO] Limitando a {args.limit} piezas seleccionadas al azar.")
 
     for i, ref in enumerate(refs_to_process, 1):
         poses     = poses_by_ref[ref]
@@ -949,7 +983,9 @@ def main():
         print(f"         → {out}")
 
     if not args.ref and not args.no_index:
-        _generate_index(poses_by_ref)
+        # Filtrar poses_by_ref para incluir solo las procesadas en el índice si hay un límite
+        filtered_poses_by_ref = {k: poses_by_ref[k] for k in refs_to_process}
+        _generate_index(filtered_poses_by_ref)
     print(f"\n[3DPoses] ✓ {len(refs_to_process)} report(s) generado(s) en: {OUT_DIR}")
 
 

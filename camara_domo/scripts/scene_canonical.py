@@ -421,9 +421,7 @@ def import_part(part_ref):
                 obj = get_single_mesh_object(par)
         except Exception:
             obj = None
-    if not obj:
-        generate_detailed_fallback_mesh(part_ref)
-        obj = bpy.context.active_object
+            
     return obj
 
 

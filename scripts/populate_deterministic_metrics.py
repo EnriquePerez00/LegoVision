@@ -42,13 +42,11 @@ from ldraw_mesh_parser import get_triangles  # noqa: E402
 import psycopg2
 import psycopg2.extras
 
-DB_CFG = {
-    "host":     os.getenv("SUPABASE_DB_HOST", "localhost"),
-    "port":     int(os.getenv("SUPABASE_DB_PORT", "5434")),
-    "dbname":   os.getenv("SUPABASE_DB_NAME", "legvision"),
-    "user":     os.getenv("SUPABASE_DB_USER", "postgres"),
-    "password": os.getenv("SUPABASE_DB_PASSWORD", "legvision_pass_2024"),
-}
+# Permitir importar desde base de datos
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "database"))
+
+from supabase_client import get_connection
 
 LDU_TO_MM = 0.4
 CONTACT_PLANE_TOL_LDU = 0.4   # 0.16 mm de tolerancia para considerar "vertice en el plano"
@@ -238,32 +236,31 @@ def fetch_poses(part_ref=None, set_id=None):
         where.append("COALESCE(set_id,'') = %s")
         params.append(set_id)
     sql = """
-        SELECT part_ref, pose_index, COALESCE(set_id,'') AS set_id_norm,
+        SELECT part_ref, pose_index,
                contact_normal, orientation_quat
         FROM stable_poses
     """
     if where:
         sql += " WHERE " + " AND ".join(where)
     sql += " ORDER BY part_ref, pose_index"
-    with psycopg2.connect(**DB_CFG) as conn, conn.cursor(
+    with get_connection() as conn, conn.cursor(
         cursor_factory=psycopg2.extras.RealDictCursor
     ) as cur:
         cur.execute(sql, params)
         return cur.fetchall()
 
 
-def update_pose(part_ref, pose_index, set_id_norm, margin_mm, tipping_ratio):
-    set_clause = "COALESCE(set_id,'') = %s"
-    with psycopg2.connect(**DB_CFG) as conn, conn.cursor() as cur:
+def update_pose(part_ref, pose_index, margin_mm, tipping_ratio):
+    with get_connection() as conn, conn.cursor() as cur:
         cur.execute(
-            f"""
+            """
             UPDATE stable_poses
             SET support_polygon_margin_mm = %s,
                 tipping_energy_ratio = %s,
                 updated_at = NOW()
-            WHERE part_ref = %s AND pose_index = %s AND {set_clause}
+            WHERE part_ref = %s AND pose_index = %s
             """,
-            (margin_mm, tipping_ratio, part_ref, pose_index, set_id_norm),
+            (margin_mm, tipping_ratio, part_ref, pose_index),
         )
 
 
@@ -311,7 +308,7 @@ def main():
                 n_fail += 1
                 continue
             update_pose(
-                part_ref, r["pose_index"], r["set_id_norm"], margin_mm, ratio
+                part_ref, r["pose_index"], margin_mm, ratio
             )
             n_ok += 1
             if args.debug:
