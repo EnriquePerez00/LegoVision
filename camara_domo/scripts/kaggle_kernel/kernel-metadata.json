@@ -1,0 +1,1 @@
+{"id": "enriqueperezto/domo-yolo-pose-train", "title": "Domo YOLO Pose Train", "code_file": "train_yolo_pose_remote.py", "language": "python", "kernel_type": "script", "is_private": "true", "enable_gpu": "true", "enable_internet": "true", "dataset_sources": ["enriqueperezto/domo-training-data"], "competition_sources": [], "kernel_sources": []}

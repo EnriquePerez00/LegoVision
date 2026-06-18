@@ -272,3 +272,4 @@ models/yolo_frontal_pose.pt
 models/train_runs/
 blender_out.txt
 jobs.txt
+camara_domo/data/kaggle_dataset/
