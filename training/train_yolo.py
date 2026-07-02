@@ -13,7 +13,7 @@ from ultralytics import YOLO
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(project_root)
 
-from database import supabase_client
+from core.db import supabase_client
 
 RUN_ID = None
 best_map50 = 0.0

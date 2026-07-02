@@ -6,7 +6,7 @@ legovic_root = os.path.dirname(project_root)
 sys.path.append(project_root)
 sys.path.append(os.path.join(project_root, "scripts"))
 
-from database.supabase_client import get_connection
+from core.db.supabase_client import get_connection
 
 refs = ["11211", "2412b", "3021", "32449", "3713", "4073", "43711", "4589b", "6536", "96874"]
 

@@ -6,7 +6,7 @@ legovic_root = os.path.dirname(project_root)
 sys.path.append(project_root)
 sys.path.append(os.path.join(project_root, "scripts"))
 
-from database.supabase_client import get_connection
+from core.db.supabase_client import get_connection
 
 with get_connection() as conn:
     with conn.cursor() as cur:

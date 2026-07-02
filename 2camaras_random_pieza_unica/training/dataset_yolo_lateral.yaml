@@ -1,7 +1,0 @@
-path: /Users/I764690/Code_personal/LegoVision/2camaras_random_pieza_unica/data/yolo_lateral_processed
-train: train.txt
-val: val.txt
-nc: 2
-names:
-  0: lego_piece
-  1: minifigure

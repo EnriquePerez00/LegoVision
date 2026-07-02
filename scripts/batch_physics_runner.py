@@ -19,6 +19,7 @@ from psycopg2.extras import execute_values
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, project_root)
 sys.path.insert(0, os.path.join(project_root, "database"))
+sys.path.insert(0, os.path.join(project_root, "core", "db"))
 
 from dotenv import load_dotenv
 load_dotenv(override=True)
@@ -29,12 +30,27 @@ DB_CONFIG["gssencmode"] = "disable"
 BLENDER_PATH = os.getenv("BLENDER_PATH", "/Users/I764690/Applications/Blender.app/Contents/MacOS/Blender")
 
 # Piezas a simular (se cargan dinámicamente desde la BD)
-def fetch_all_parts_from_db():
+def fetch_all_parts_from_db(only_missing=False):
     conn = psycopg2.connect(**DB_CONFIG)
     parts = []
     try:
         with conn.cursor() as cur:
-            cur.execute("SELECT DISTINCT part_ref, MAX(color_hex) as color_hex FROM lego_set_parts WHERE color_hex IS NOT NULL GROUP BY part_ref")
+            if only_missing:
+                query = """
+                    SELECT DISTINCT part_ref, MAX(color_hex) as color_hex 
+                    FROM lego_set_parts 
+                    WHERE color_hex IS NOT NULL 
+                      AND part_ref NOT IN (SELECT DISTINCT part_ref FROM stable_poses)
+                    GROUP BY part_ref
+                """
+            else:
+                query = """
+                    SELECT DISTINCT part_ref, MAX(color_hex) as color_hex 
+                    FROM lego_set_parts 
+                    WHERE color_hex IS NOT NULL 
+                    GROUP BY part_ref
+                """
+            cur.execute(query)
             for row in cur.fetchall():
                 parts.append({"ref": row[0], "color": row[1]})
         return parts
@@ -43,6 +59,7 @@ def fetch_all_parts_from_db():
         return []
     finally:
         conn.close()
+
 
 def alter_db_schema():
     """Ejecuta los ALTERS necesarios para asegurar que los nuevos campos existen."""
@@ -572,6 +589,11 @@ def save_poses_to_db(part_ref, poses, set_id="75078-1"):
 
 
 def main():
+    import argparse
+    parser = argparse.ArgumentParser(description="Orquesta la simulación física en lote en Blender.")
+    parser.add_argument("--only-missing", action="store_true", help="Simular únicamente piezas que no tengan poses ya guardadas en la BD.")
+    args = parser.parse_args()
+
     t_start = time.time()
     print("==================================================")
     print("INICIANDO EJECUCIÓN MULTIPROCESO DE SIMULACIÓN FÍSICA")
@@ -579,7 +601,10 @@ def main():
     
     # 1. Configurar DB
     alter_db_schema()
-    clear_stable_poses()
+    if args.only_missing:
+        print("[DB] Ejecutando en modo '--only-missing'. Se conservarán las poses estables existentes.")
+    else:
+        clear_stable_poses()
     
     # 2. Configurar Workers (Límite del 50% de hilos de CPU para dejar respiro a la DB)
     num_cores = 12
@@ -587,7 +612,7 @@ def main():
     print(f"Configurando Pool con {num_workers} procesos concurrentes...")
     
     # 3. Obtener piezas a procesar
-    parts_to_run = fetch_all_parts_from_db()
+    parts_to_run = fetch_all_parts_from_db(only_missing=args.only_missing)
     print(f"[DB] Se encontraron {len(parts_to_run)} piezas a simular.")
 
     # 4. Lanzar ejecuciones concurrentes

@@ -21,7 +21,7 @@ sys.path.append(project_root)
 
 from inference.knn_classifier import LegoKNNClassifier, get_knn_classifier, FALLBACK_FOOTPRINT_MM
 from inference.api import PART_HEIGHTS_MM
-from database.set_catalog import REAL_SETS
+from core.db.set_catalog import REAL_SETS
 
 # ---------------------------------------------------------------------------
 # Parámetros de calibración

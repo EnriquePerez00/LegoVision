@@ -98,7 +98,7 @@ def build_set_physics_simulation(set_id, output_path):
     print(f"=== Simulacion Fisica Completa del Set: {set_id} ===")
     
     # 1. Obtener inventario del catálogo
-    from database.set_catalog import REAL_SETS
+    from core.db.set_catalog import REAL_SETS
     if set_id not in REAL_SETS:
         print(f"[ERROR] Set {set_id} no encontrado en el catálogo.")
         return False

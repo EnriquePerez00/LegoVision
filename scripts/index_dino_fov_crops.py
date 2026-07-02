@@ -14,7 +14,7 @@ import numpy as np
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(project_root)
 
-from database import supabase_client
+from core.db import supabase_client
 from training.index_synthetic_renders import COLOR_HEX_TO_CODE, get_device, load_dinov2, get_transform, preprocess_render, extract_embedding
 
 def preprocess_render_preserve_scale(img: Image.Image, canvas_size: int = 224) -> Image.Image:

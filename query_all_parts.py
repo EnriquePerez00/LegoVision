@@ -1,5 +1,5 @@
 import sys, os
-from database.supabase_client import get_connection
+from core.db.supabase_client import get_connection
 
 with get_connection() as conn:
     with conn.cursor() as cur:

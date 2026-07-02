@@ -19,7 +19,7 @@ from PIL import Image
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(project_root)
 
-from database import supabase_client
+from core.db import supabase_client
 from training.index_synthetic_renders import (
     COLOR_HEX_TO_CODE, get_device, load_dinov2,
     get_transform, preprocess_render, extract_embedding,

@@ -53,7 +53,8 @@ from scene_config import (
 
 # ── Las mismas 10 piezas del test ────────────────────────────────────────────
 SELECTED_PARTS = ["3005", "3001", "3039", "3665", "3010",
-                  "3002", "3020", "4070", "4032", "3700"]
+                  "3002", "3020", "4070", "4032", "3700",
+                  "2412b", "98138", "2335"]
 
 PART_COLORS_HEX = ["A0A5A9", "1B1B1B", "C91A09", "F2CD37", "DFD1A5", "0A3C9F"]
 
@@ -65,6 +66,13 @@ def _get_world_bbox(obj):
 def _normalize_piece(obj):
     if not obj.data or not hasattr(obj.data, 'vertices'):
         return 1.0
+    import bpy
+    # Bake the import rotation/scale transforms into the raw vertices
+    bpy.ops.object.select_all(action="DESELECT")
+    obj.select_set(True)
+    bpy.context.view_layer.objects.active = obj
+    bpy.ops.object.transform_apply(location=False, rotation=True, scale=True)
+    
     verts = [v.co for v in obj.data.vertices]
     if not verts:
         return 1.0

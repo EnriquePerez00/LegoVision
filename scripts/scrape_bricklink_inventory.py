@@ -48,11 +48,12 @@ sys.path.insert(0, os.path.join(PROJECT_ROOT, "database"))
 import requests
 from bs4 import BeautifulSoup
 
-from database import supabase_client  # noqa: E402
-from database.supabase_client import get_connection  # type: ignore  # noqa: E402
+from core.db import supabase_client  # noqa: E402
+from core.db.supabase_client import get_connection  # type: ignore  # noqa: E402
 
-CATALOG_PY_PATH = os.path.join(PROJECT_ROOT, "database", "set_catalog.py")
-COLOR_CATALOG_PATH = os.path.join(PROJECT_ROOT, "database", "color_catalog.json")
+CATALOG_PY_PATH = os.path.join(PROJECT_ROOT, "core", "db", "set_catalog.py")
+COLOR_CATALOG_PATH = os.path.join(PROJECT_ROOT, "core", "db", "color_catalog.json")
+COLORS_CSV_PATH = os.path.join(PROJECT_ROOT, "database", "colors.csv")
 
 HEADERS = {
     "User-Agent": (
@@ -79,6 +80,26 @@ def load_color_catalog() -> dict:
     except Exception as e:
         print(f"[WARN] No se pudo leer {COLOR_CATALOG_PATH}: {e}")
         return {}
+
+
+def load_colors_csv() -> dict:
+    """Carga colors.csv de Rebrickable {id: {name, hex}}."""
+    import csv
+    colors = {}
+    if not os.path.exists(COLORS_CSV_PATH):
+        return colors
+    try:
+        with open(COLORS_CSV_PATH, "r", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                colors[row["id"]] = {
+                    "name": row["name"],
+                    "hex": f"#{row['rgb']}"
+                }
+    except Exception as e:
+        print(f"[WARN] No se pudo leer {COLORS_CSV_PATH}: {e}")
+    return colors
+
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -248,17 +269,25 @@ def get_minifig_name(html: str, fallback: str = "") -> str:
 #  Enriquecimiento (color_hex / color_name) y limpieza de nombre
 # ══════════════════════════════════════════════════════════════════════════════
 
-def enrich_part(part: dict, color_catalog: dict) -> dict:
+def enrich_part(part: dict, color_catalog: dict, rebrickable_colors: dict = None) -> dict:
     """Añade color_hex/color_name oficiales y quita el prefijo de color del name."""
     bl_id = str(part.get("color_code", ""))
     info = color_catalog.get(bl_id) or {}
     color_name = info.get("name", "") or ""
     color_hex  = info.get("hex", "") or ""
 
+    # Si el color es desconocido o genérico en color_catalog, inferir de colors.csv
+    if (not color_name or color_name == "Unknown Color" or color_name == "Various") and rebrickable_colors:
+        if bl_id in rebrickable_colors:
+            info_rb = rebrickable_colors[bl_id]
+            color_name = info_rb["name"]
+            color_hex = info_rb["hex"]
+
     raw_name = (part.get("name") or "").strip()
     cleaned  = raw_name
     if color_name and raw_name.lower().startswith(color_name.lower()):
         cleaned = raw_name[len(color_name):].strip()
+
 
     return {
         "ref":        part["ref"],
@@ -446,6 +475,7 @@ def update_set_catalog_py(set_id: str, set_name: str, parts: list,
 def scrape_set(set_id: str) -> dict:
     """Orquesta scraping del set y de cada minifig. Devuelve dict completo."""
     color_catalog = load_color_catalog()
+    rebrickable_colors = load_colors_csv()
 
     print(f"[Scrape] Set {set_id} → {INV_URL_SET.format(code=set_id)}")
     html_set = fetch_html(INV_URL_SET.format(code=set_id))
@@ -462,7 +492,7 @@ def scrape_set(set_id: str) -> dict:
     print(f"[Scrape] Regular Items → {len(raw['parts'])} parts, "
           f"{len(raw['minifigures'])} minifigs")
 
-    parts_enriched = [enrich_part(p, color_catalog) for p in raw["parts"]]
+    parts_enriched = [enrich_part(p, color_catalog, rebrickable_colors) for p in raw["parts"]]
     minifigs       = list(raw["minifigures"])
 
     # Inventario de cada minifig
@@ -473,7 +503,7 @@ def scrape_set(set_id: str) -> dict:
             print(f"[Scrape] Minifig {mref} → {INV_URL_MINFIG.format(ref=mref)}")
             html_m = fetch_html(INV_URL_MINFIG.format(ref=mref))
             raw_m  = parse_minifig_inventory(html_m)
-            mparts = [enrich_part(p, color_catalog) for p in raw_m]
+            mparts = [enrich_part(p, color_catalog, rebrickable_colors) for p in raw_m]
             minifig_parts_map[mref] = mparts
             print(f"[Scrape]   {mref}: {len(mparts)} piezas")
         except Exception as e:

@@ -55,6 +55,7 @@ Thumbs.db
 logs/
 **/logs/
 pipeline_execution*.log
+mcp_kaggle_logs/
 
 # --- Backups y temporales ---
 *.bak
@@ -83,91 +84,21 @@ backups/
 *.webp
 
 # --- Datos pesados regenerables (LDraw, datasets, renders) ---
-data/ldraw/
-data/raw_dataset/
-data/processed_dataset/
-data/test_dataset/
-data/temp_inference_run/
-data/tmp/
-data/synthetic_renders/
-data/simulated_dinov2/
-data/dino_scatter/
-data/pipeline_ref/
-data/pipeline_val/
-data/ref_multiangle/
-data/test_e2e/
-data/iter*/
-
-# --- Imágenes de renders sintéticos (Blender/Eevee) ---
-# Imágenes cenital/lateral de samples
-**/sample*.png
-**/sample*.jpg
-**/sample*.jpeg
-# Renders de poses y validación
-**/render_*.png
-**/render_*.jpg
-**/pose_*.png
-**/pose_*.jpg
-# Imágenes de inferencia test
-**/inferencia_*.png
-**/inferencia_*.jpg
-# Imágenes de train/val YOLO (regenerables)
-**/images/train/
-**/images/val/
-**/images/test/
-
-# --- Datasets de test/sample sets (regenerables) ---
-**/data/300/
-**/data/test_*/
-**/data/test500*/
-**/data/inferencia_test*/
-**/data/tmp/
-
-# --- YOLO datasets (regenerables ~3 GB) ---
-**/yolo_cenital/
-**/yolo_cenital_full/
-**/yolo_cenital_split/
-**/yolo_cenital_processed/
-**/yolo_cenital_v*_legacy/
-**/yolo_frontal/
-**/yolo_frontal_full/
-**/yolo_frontal_split/
-**/yolo_frontal_processed/
-**/yolo_lateral/
-**/yolo_lateral_full/
-**/yolo_lateral_split/
-**/yolo_lateral_processed/
-**/yolo_lateral_v*_legacy/
-**/yolo_lateral0/
-**/yolo_pose_cenital/
-**/yolo_pose_lateral/
-**/dual_test_*/
-
-# --- DINOv2 referencias (regenerables ~500 MB) ---
-**/dinov2_refs/
-**/dinov2_refs_*/
-**/dinov2_refs_full/
-**/simulated_dinov2/
-
-# --- Color calibration (regenerable) ---
-**/color_calibration/
-**/color_calibration_*/
+data/
+**/data/
+datasets/
+**/datasets/
+database/rebrickable_cache/
+**/rebrickable_cache/
 
 # --- Caches YOLO ---
 **/labels/train.cache
 **/labels/val.cache
 **/labels/test.cache
 
-# --- Validation / inference renders ---
-**/validation_renders*/
-**/test_dual/
-**/random_position/
-
 # --- Reports generados ---
 **/report/
 **/reports/
-**/data/report/
-**/data/reports/
 **/_bricklink_cache/
 **/3dposes/
 **/*_report.html
@@ -202,22 +133,21 @@ selected_parts.json
 *.xlsx
 *.xls
 
-# --- Modelos: bloquear todo .pt; usar `git add -f` para los validados ---
+# --- Modelos y Pesos (Bloquear todo .pt; solo permitir selectivamente) ---
 *.pt
+**/*.pt
 **/yolo_runs/
 **/runs/
 **/runs_pose/
+**/train_runs/
 training/runs/
 runs/
-yolo11n.pt
-yolo11m.pt
-yolov8n.pt
-yolov8m.pt
-yolov8l.pt
 mobile_sam.pt
-**/mobile_sam.pt
+sam2_b.pt
+*.zip
+**/*.zip
 
-# Excepción: Proteger y forzar el tracking de los modelos validados en la carpeta models/
+# Excepción: Proteger y forzar el tracking de los modelos validados en la carpeta models/ raíz
 !models/
 !models/*.pt
 
@@ -235,41 +165,17 @@ docker-volumes/
 *.sqlite
 *.sqlite3
 
-# --- Datasets de subproyectos (Regenerables) ---
-**/data/dinov2_refs_v*/
-**/data/dinov2_refs_*_canonical/
-**/data/yolo_pose_*/
-**/data/test*/
-**/data/camera_matrices_*.json
-**/data/color_calibration_*.json
-
-# --- Archivos de pruebas y validaciones ---
-**/test/sam_pipeline_e2e/refs_sam/
-**/refs_sam/
 # ============================================================
 #  2camaras_random_pieza_unica — Separación de dominios
 # ============================================================
-# Carpetas de datos generados masivos (renders, reports, logs)
-# pero preservar .gitkeep para mantener estructura de carpetas
 2camaras_random_pieza_unica/renders/
 !2camaras_random_pieza_unica/renders/.gitkeep
 2camaras_random_pieza_unica/reports/
 !2camaras_random_pieza_unica/reports/.gitkeep
 2camaras_random_pieza_unica/logs/
 !2camaras_random_pieza_unica/logs/.gitkeep
-
-# Excepción: si existe un subarchivo .gitkeep dentro de subdirs, preservarlo
 !2camaras_random_pieza_unica/renders/**/.gitkeep
 !2camaras_random_pieza_unica/reports/**/.gitkeep
-# Large data files
-camara_domo/data/domo_training_data.zip
-camara_domo/data/yolo_dataset_cenital/
-camara_domo/data/yolo_dataset_frontal/
-camara_domo/data/yolo_dataset_test2/
-camara_domo/data/data10/
-models/yolo_cenital_pose.pt
-models/yolo_frontal_pose.pt
-models/train_runs/
+
 blender_out.txt
 jobs.txt
-camara_domo/data/kaggle_dataset/

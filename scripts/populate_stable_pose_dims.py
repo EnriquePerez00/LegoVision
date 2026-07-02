@@ -44,6 +44,7 @@ project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, project_root)
 sys.path.insert(0, os.path.join(project_root, "scripts"))
 sys.path.insert(0, os.path.join(project_root, "database"))
+sys.path.insert(0, os.path.join(project_root, "core", "db"))
 
 from ldraw_mesh_parser import get_triangles  # noqa: E402
 from supabase_client import get_connection   # noqa: E402
@@ -162,7 +163,7 @@ def compute_pose_dims(part_ref, contact_normal, tol_ldu=None):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--set_id", default="75078-1",
+    parser.add_argument("--set_id", default=None,
                         help="Set a procesar (None = todos los stable_poses).")
     parser.add_argument("--tol_ldu", type=float, default=None,
                         help="Tolerancia (LDU) para considerar un vértice parte de la cara de contacto. "
@@ -207,23 +208,13 @@ def main():
         skipped = 0
         with conn.cursor() as cur:
             for i, (ref, plist) in enumerate(by_part.items(), start=1):
-                print(f"[{i}/{len(by_part)}] {ref}  ({len(plist)} poses)")
+                if i % 10 == 0 or i == 1 or i == len(by_part):
+                    print(f"[{i}/{len(by_part)}] {ref}  ({len(plist)} poses)...")
                 for p in plist:
                     dims = compute_pose_dims(ref, p["contact_normal"], tol_ldu=args.tol_ldu)
                     if dims["zenith_observable_area"] is None:
-                        print(f"    pose {p['pose_index']}: sin malla → skip")
                         skipped += 1
                         continue
-
-                    def _fmt(v, w=6):
-                        if v is None:
-                            return "None".rjust(w)
-                        return f"{v:>{w}.2f}"
-                    print(f"    pose {p['pose_index']:>3} {p['face_class']:<6}"
-                          f"  L={_fmt(dims['contact_stable_length'])} mm"
-                          f"  W={_fmt(dims['contact_stable_width'])} mm"
-                          f"  H={_fmt(dims['lateral_height'])} mm"
-                          f"  zen_area={_fmt(dims['zenith_observable_area'], 7)} mm²")
 
                     if not args.dry_run:
                         cur.execute("""

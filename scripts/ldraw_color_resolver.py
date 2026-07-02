@@ -59,7 +59,7 @@ DEFAULT_LDRAW_SUBDIRS = [
 ]
 
 DEFAULT_COLOR_CATALOG = os.path.join(
-    _PROJECT_ROOT, "database", "color_catalog.json"
+    _PROJECT_ROOT, "core", "db", "color_catalog.json"
 )
 
 # Refs que NUNCA se procesan por este resolver (se delegan al pipeline minifig).
@@ -205,14 +205,14 @@ def get_color_info(bl_id: str, color_catalog: dict) -> Dict[str, str]:
 def _try_import_db():
     """Importa el módulo supabase_client si está disponible."""
     try:
-        from database import supabase_client as _sc  # type: ignore
+        from core.db import supabase_client as _sc  # type: ignore
         return _sc
     except Exception:
         pass
     try:
         sys.path.insert(0, _PROJECT_ROOT)
         sys.path.insert(0, os.path.join(_PROJECT_ROOT, "database"))
-        from database import supabase_client as _sc  # type: ignore
+        from core.db import supabase_client as _sc  # type: ignore
         return _sc
     except Exception:
         try:

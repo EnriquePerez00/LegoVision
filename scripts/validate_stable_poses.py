@@ -50,7 +50,7 @@ def main():
     runs = parsed_args.runs
     
     # 1. Obtener inventario del catálogo
-    from database.set_catalog import REAL_SETS
+    from core.db.set_catalog import REAL_SETS
     if set_id not in REAL_SETS:
         print(f"[ERROR] Set {set_id} no encontrado en el catálogo.")
         return
@@ -242,7 +242,7 @@ def main():
     # Comparar con Base de Datos
     db_faces = {}
     try:
-        from database import supabase_client
+        from core.db import supabase_client
         db_embeddings = supabase_client.get_all_embeddings()
         for emb in db_embeddings:
             r = emb["part_ref"]

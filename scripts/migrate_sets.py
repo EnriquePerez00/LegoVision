@@ -4,8 +4,8 @@ import os
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(project_root)
 
-from database import supabase_client
-from database.set_catalog import REAL_SETS
+from core.db import supabase_client
+from core.db.set_catalog import REAL_SETS
 
 def run_migration():
     print("Iniciando migración de sets...")

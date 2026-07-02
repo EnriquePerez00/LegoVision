@@ -114,7 +114,7 @@ def get_semantic_poses_from_db(ref, semantic_json_path=None):
         return [(p["face_class"], p["area"]) for p in poses], sem.get("n_poses", len(poses))
     # Fallback: try BD
     try:
-        from database import supabase_client
+        from core.db import supabase_client
         conn = supabase_client.get_connection()
         with conn.cursor() as cur:
             cur.execute("SELECT DISTINCT stable_face FROM piece_embeddings WHERE part_ref = %s ORDER BY stable_face", (ref,))
