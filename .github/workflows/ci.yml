@@ -33,9 +33,9 @@ jobs:
     - name: SQL Schema verification
       run: |
         # Verify schema.sql is valid SQL syntax (simple check)
-        if grep -q "CREATE TABLE" database/schema.sql; then
+        if grep -q "CREATE TABLE" core/db/schema.sql; then
           echo "Schema contains table definitions"
         else
-          echo "Error: CREATE TABLE not found in database/schema.sql"
+          echo "Error: CREATE TABLE not found in core/db/schema.sql"
           exit 1
         fi
