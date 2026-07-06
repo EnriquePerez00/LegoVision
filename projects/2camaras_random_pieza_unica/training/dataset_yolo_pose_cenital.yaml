@@ -1,0 +1,10 @@
+# YOLO11n-pose dataset config — camara cenital
+path: /Users/I764690/Code_personal/LegoVision/2camaras_random_pieza_unica/data/yolo_pose_cenital
+train: images/train
+val: images/train
+
+kpt_shape: [9, 3]
+flip_idx: [1, 0, 3, 2, 5, 4, 7, 6, 8]
+
+names:
+  0: lego_piece

@@ -1,9 +1,14 @@
 # ============================================================
-#  LegoVision .gitignore
+#  LegoVision — .gitignore
+#  Objetivo: subir ÚNICAMENTE código fuente y modelos "ganadores"
+#  (whitelist explícita). Todo lo regenerable queda fuera.
 # ============================================================
 
-# --- Python ---
+# ------------------------------------------------------------
+#  Python
+# ------------------------------------------------------------
 __pycache__/
+**/__pycache__/
 *.py[cod]
 *$py.class
 *.so
@@ -11,35 +16,46 @@ __pycache__/
 env/
 venv/
 .venv/
+**/.venv/
 *.egg-info/
 dist/
 build/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
 
-# --- Jupyter ---
+# ------------------------------------------------------------
+#  Jupyter
+# ------------------------------------------------------------
 .ipynb_checkpoints/
 *.ipynb
 
-# --- Secrets / env ---
+# ------------------------------------------------------------
+#  Secrets / entorno
+# ------------------------------------------------------------
 .env
 .env.*
 !.env.example
 *.key
 *.pem
 *.secret
+credentials*.json
+service_account*.json
 password*.docx
 password*.xlsx
 password*.txt
 
-# --- IDE / SO ---
+# ------------------------------------------------------------
+#  IDE / SO
+# ------------------------------------------------------------
 .vscode/
 .idea/
 *.swp
 *.swo
 *.orig
-.clinerules
 .DS_Store
 **/.DS_Store
 .AppleDouble
@@ -50,132 +66,276 @@ Icon
 .Trashes
 Thumbs.db
 
-# --- Logs ---
+# ------------------------------------------------------------
+#  .clinerules es LOCAL (guía del agente en la máquina de dev)
+#  CLAUDE.md SÍ se sube — es la guía maestra pública.
+# ------------------------------------------------------------
+.clinerules
+
+# ------------------------------------------------------------
+#  Logs (nunca subir)
+# ------------------------------------------------------------
 *.log
 logs/
 **/logs/
 pipeline_execution*.log
 mcp_kaggle_logs/
+mcp_kaggle_logs/**
+blender_out.txt
+jobs.txt
+yolo_iou.txt
+out.log
+err*.log
+tune.log
+calibration.log
+eval_final.log
 
-# --- Backups y temporales ---
+# ------------------------------------------------------------
+#  Backups / temporales / patches locales
+# ------------------------------------------------------------
 *.bak
+*.bak_*
 *.backup
 *.tmp
 *.temp
 *.~
+*.orig
 .gitignore.backup
 **/config.yaml.bak
 *.json.bak
 *.yaml.bak
+patch_*.py
+rewrite_*.py
+revert_*.py
+clean_and_apply_*.py
+inferencia_neuronal.py.bak
 
-# --- Carpetas de exploración / backups locales ---
+# ------------------------------------------------------------
+#  Directorios exploratorios / scratch (por convención, NUNCA subir)
+# ------------------------------------------------------------
 scratch/
 **/scratch/
 backups/
 **/backups/
+_legacy/
+**/_legacy/
 
-# --- Imágenes: NUNCA subir PNGs/JPGs al repositorio ---
+# ------------------------------------------------------------
+#  Imágenes: NUNCA subir renders/datasets al repo
+#  (todas se regeneran vía Blender o pipelines)
+# ------------------------------------------------------------
 *.png
 *.jpg
 *.jpeg
 *.gif
 *.bmp
 *.tiff
+*.tif
 *.webp
+*.exr
+*.hdr
 
-# --- Datos pesados regenerables (LDraw, datasets, renders) ---
+# ------------------------------------------------------------
+#  Datos pesados regenerables
+#  (LDraw, datasets Blender, renders, calibraciones, caches)
+# ------------------------------------------------------------
 data/
 **/data/
 datasets/
 **/datasets/
+renders/
+**/renders/
 database/rebrickable_cache/
 **/rebrickable_cache/
+**/_bricklink_cache/
+**/simulation_*/
+**/test_*allhd/
+**/test_*_hd/
+**/dinov2_refs*/
+**/color_calibration*/
+**/efficientnet_train/
+**/3dposes/
+**/kaggle_kernel/
+**/hierarchical/
 
-# --- Caches YOLO ---
+# ------------------------------------------------------------
+#  Caches YOLO / DataLoaders
+# ------------------------------------------------------------
 **/labels/train.cache
 **/labels/val.cache
 **/labels/test.cache
+**/*.cache
 
-# --- Reports generados ---
+# ------------------------------------------------------------
+#  Reports generados (HTML, JSON, CSV, XLSX)
+# ------------------------------------------------------------
 **/report/
 **/reports/
-**/_bricklink_cache/
-**/3dposes/
+!**/reports/.gitkeep
 **/*_report.html
 **/*_report.json
 piece_report_*.html
 **/piece_report_*.html
-*.bak_*
-
-# --- JSONs de evaluación/resultados generados ---
 eval_report*.json
 eval_results*.json
 eval_report_*.json
+eval_*_report*.json
 inference_*_eval.json
 *_metadata.json
+!**/models/*_metadata.json                 # metadatos junto a modelos ganadores SÍ
 *_eval.json
+evolution_progress.md
+**/evolution_progress.md
 
-# --- Caches ---
+# ------------------------------------------------------------
+#  Caches JSON de pipeline
+# ------------------------------------------------------------
 *_cache.json
 stable_poses_cache.json
 selected_parts.json
+gpu_providers.json
+ccm_dome_light.json
 
-# --- Embeddings ---
+# ------------------------------------------------------------
+#  Embeddings / arrays binarios (regenerables)
+# ------------------------------------------------------------
 *.npy
 *.npz
 *.pkl
 *.pickle
+!**/models/color_ref_embeddings.npz        # excepción: refs de color ganadoras
 
-# --- Excel / Office temporales ---
+# ------------------------------------------------------------
+#  Excel / Office
+# ------------------------------------------------------------
 ~$*.xlsx
 ~$*.xls
 ~$*.docx
 *.xlsx
 *.xls
+*.csv
+!database/colors.csv                       # catálogo LEGO oficial → SÍ subir
 
-# --- Modelos y Pesos (Bloquear todo .pt; solo permitir selectivamente) ---
+# ------------------------------------------------------------
+#  Modelos y pesos
+#  Regla: bloquear TODOS los .pt y WHITELIST explícita
+#  de los modelos "ganadores" que forman parte del pipeline
+#  productivo. Los base (SAM/YOLO pretrained/DINOv2) se
+#  descargan del hub → NO se suben.
+# ------------------------------------------------------------
 *.pt
-**/*.pt
+*.pth
+*.onnx
+*.mlpackage
+**/*.mlpackage/
+*.coreml
 **/yolo_runs/
 **/runs/
 **/runs_pose/
 **/train_runs/
 training/runs/
 runs/
-mobile_sam.pt
-sam2_b.pt
 *.zip
 **/*.zip
 
-# Excepción: Proteger y forzar el tracking de los modelos validados en la carpeta models/ raíz
+# --- Modelos base descargables (BLOQUEAR SIEMPRE) ---
+mobile_sam.pt
+**/mobile_sam.pt
+sam2_b.pt
+**/sam2_b.pt
+yolo11*.pt
+**/yolo11*.pt
+yolo26*.pt
+**/yolo26*.pt
+yolov8*.pt
+**/yolov8*.pt
+yolo11s-pose.pt
+**/yolo11s-pose.pt
+
+# --- WHITELIST: modelos ganadores (raíz) ---
 !models/
 !models/*.pt
+!models/*.txt
+!models/MANIFEST.md
 
-# --- Blender ---
+# --- WHITELIST: modelos ganadores por proyecto ---
+# YOLO fine-tuned del proyecto
+!projects/*/models/
+!projects/*/models/yolo_cenital.pt
+!projects/*/models/yolo_lateral.pt
+!projects/*/models/yolo_frontal.pt
+!projects/*/models/yolo_cenital_pose.pt
+!projects/*/models/yolo_frontal_pose.pt
+!projects/*/models/yolo_lateral_pose.pt
+# EfficientNet fine-tuned
+!projects/*/models/efficientnet_cenital.pt
+!projects/*/models/efficientnet_lateral.pt
+!projects/*/models/efficientnet_cenital.pt.classes.txt
+!projects/*/models/efficientnet_lateral.pt.classes.txt
+# MLP / router de color (custom heads)
+!projects/*/models/color_mlp_model*.pt
+!projects/*/models/color_mlp_metadata*.json
+!projects/*/models/color_router_all*.pt
+!projects/*/models/color_router_all*_metadata.json
+!projects/*/models/color_all*.pt
+!projects/*/models/color_all_metadata.json
+!projects/*/models/color_model_cen.pt
+!projects/*/models/color_model_lat.pt
+!projects/*/models/color_classes.txt
+# Feature extractors custom
+!projects/*/models/features_cenital.pt
+!projects/*/models/features_lateral.pt
+# Metric head DINOv2
+!projects/*/models/dino_metric_head.pt
+# Manifiesto por proyecto (obligatorio)
+!projects/*/models/MANIFEST.md
+# Directorios de entrenamiento internos NO
+projects/*/models/train_runs/
+projects/*/models/hierarchical/
+
+# ------------------------------------------------------------
+#  Blender
+# ------------------------------------------------------------
 *.blend1
 *.blend2
+*.blend@
 /tmp/
+**/tmp/
 
-# --- Supabase / Docker ---
+# ------------------------------------------------------------
+#  Supabase / Docker
+# ------------------------------------------------------------
 .supabase/
 docker-volumes/
 
-# --- DBs locales ---
+# ------------------------------------------------------------
+#  DBs locales
+# ------------------------------------------------------------
 *.db
 *.sqlite
 *.sqlite3
 
-# ============================================================
-#  2camaras_random_pieza_unica — Separación de dominios
-# ============================================================
-2camaras_random_pieza_unica/renders/
-!2camaras_random_pieza_unica/renders/.gitkeep
-2camaras_random_pieza_unica/reports/
-!2camaras_random_pieza_unica/reports/.gitkeep
-2camaras_random_pieza_unica/logs/
-!2camaras_random_pieza_unica/logs/.gitkeep
-!2camaras_random_pieza_unica/renders/**/.gitkeep
-!2camaras_random_pieza_unica/reports/**/.gitkeep
+# ------------------------------------------------------------
+#  Compensación .gitkeep (mantener estructura de dirs vacíos)
+# ------------------------------------------------------------
+!**/.gitkeep
 
-blender_out.txt
-jobs.txt
+# ------------------------------------------------------------
+#  Scripts exploratorios en RAÍZ del repo (NUNCA subir).
+#  Convención: si es útil, va a projects/<X>/scripts/ o a
+#  scripts/. Si es scratch, va a scratch/ (ignorado).
+# ------------------------------------------------------------
+/analyze_*.py
+/check_*.py
+/count_*.py
+/derive_*.py
+/find_*.py
+/query_*.py
+/test_*.py
+/evaluate_sim*.py
+/patch_*.py
+/rewrite_*.py
+/revert_*.py
+/clean_and_apply_*.py
+# Nota: los scripts homólogos DENTRO de projects/*/scripts/ y scripts/
+# NO se ven afectados (los patrones empiezan por '/' = raíz).
