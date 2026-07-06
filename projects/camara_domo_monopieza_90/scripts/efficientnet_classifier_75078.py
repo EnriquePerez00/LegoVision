@@ -100,6 +100,8 @@ class LegoEfficientNetClassifier75078:
         with torch.no_grad():
             dummy = torch.zeros(1, 3, 224, 224).to(self.device)
             self.emb_dim = self.model_cen(dummy).shape[-1]
+            
+        self.direct_clf = None
 
         # Cargar clasificadores de características topológicas
         self.CLASSES_FEATURES = [
@@ -517,11 +519,63 @@ class LegoEfficientNetClassifier75078:
                  measured_width: Optional[float] = None,
                  detected_studs: Optional[int] = None,
                  is_simulation: bool = False,
-                 yolo_conf: Optional[float] = None) -> List[Dict[str, Any]]:
+                 yolo_conf: Optional[float] = None,
+                 pipeline_mode: str = "legacy") -> List[Dict[str, Any]]:
         """
         Runs the full classification pipeline: deterministic filter, color decoupling,
         feature extraction, and Restricted K-NN search.
         """
+        if pipeline_mode == "direct_cnn":
+            # 1. Obtener la varianza del Laplaciano (stud_signature)
+            stud_signature = 0.0
+            if crop_cen is not None and mask_cen is not None:
+                try:
+                    gray_cen = np.array(crop_cen.convert("L"), dtype=np.float32)
+                    m = mask_cen
+                    if m.shape != gray_cen.shape:
+                        m = cv2.resize(m, (gray_cen.shape[1], gray_cen.shape[0]), interpolation=cv2.INTER_NEAREST)
+                    roi = gray_cen.copy()
+                    roi[m == 0] = 0
+                    lap = cv2.Laplacian(roi, cv2.CV_64F)
+                    pixels = lap[m > 0]
+                    stud_signature = float(np.var(pixels)) if len(pixels) > 10 else 0.0
+                except Exception:
+                    pass
+                    
+            # 2. Obtener características topológicas predichas
+            pred_cen_vec = None
+            if crop_cen is not None and self.features_cen_model is not None:
+                try:
+                    processed_cen = preprocess_crop_grayscale(crop_cen, canvas_size=224)
+                    transform_feat = T.Compose([
+                        T.ToTensor(),
+                        T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+                    ])
+                    tensor_cen = transform_feat(processed_cen).unsqueeze(0).to(self.device)
+                    with torch.no_grad():
+                        logits = self.features_cen_model(tensor_cen)
+                        pred_cen_vec = torch.sigmoid(logits)[0].cpu().numpy()
+                except Exception:
+                    pass
+                    
+            # 3. Invocar al clasificador directo
+            if self.direct_clf is None:
+                from direct_cnn_classifier import LegoDirectCNNClassifier
+                script_dir = os.path.dirname(os.path.abspath(__file__))
+                project_root_local = os.path.dirname(script_dir)
+                weights_path = os.path.join(project_root_local, "models", "direct_classifier_75078.pt")
+                self.direct_clf = LegoDirectCNNClassifier(weights_path, self.device)
+                
+            return self.direct_clf.predict(
+                crop_cen=crop_cen,
+                area_cenital=area_cenital,
+                measured_length=measured_length or 0.0,
+                measured_width=measured_width or 0.0,
+                measured_height=measured_height or 0.0,
+                stud_signature=stud_signature,
+                topological_probs=pred_cen_vec
+            )
+
         # 1. CIELAB Color Median extraction (Fase 2)
         print(f"[DEBUG]     extract_median_lab...", flush=True)
         color_lab_cen = self.extract_median_lab(crop_cen, mask_cen)
