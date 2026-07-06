@@ -669,7 +669,9 @@ def run_evaluation(metadata_path, report_path, use_dinov2_color=False, use_emd_c
 
     # Inicializar Modelos YOLO y SAM
     log.info("Cargando detector YOLO cenital (CPU para estabilidad FP32)...")
-    yolo_cen_path = os.path.join(project_root, "models", "yolo_cenital.pt")
+    yolo_cen_path = os.path.join(project_root, "models", "yolo_2D_cenital_pose.pt")
+    if not os.path.exists(yolo_cen_path):
+        yolo_cen_path = os.path.join(project_root, "models", "yolo_cenital.pt")
     yolo_cen = YOLO(yolo_cen_path).to("cpu")  # CPU es 100% estable en FP32 y ultra-rápida (12ms) en M4
     yolo_lat = None
     yolo_cen_pose = None
@@ -840,7 +842,7 @@ def run_evaluation(metadata_path, report_path, use_dinov2_color=False, use_emd_c
     log.info(f"Pipeline optimizado: {n_cpu_workers} workers CPU + GPU batch mode (M4)")
 
     def process_entry(entry):
-        nonlocal total_count, correct_count, iou_list
+        nonlocal total_count, correct_count
         sample_idx = entry["sample_index"]
         ref_gt = entry["ref"]
         color_code_gt = entry["color_code"]
