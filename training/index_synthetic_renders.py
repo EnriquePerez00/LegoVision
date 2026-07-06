@@ -38,7 +38,7 @@ from concurrent.futures import ThreadPoolExecutor
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(project_root)
 
-from database import supabase_client
+from core.db import supabase_client
 
 # Optimizaciones (sprint 2):
 #   - 2.1 ThreadPool de PIL+preprocess+transform (8 hilos CPU) mientras la

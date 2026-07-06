@@ -14,7 +14,7 @@ services:
       POSTGRES_PASSWORD: legvision_pass_2024
     volumes:
       - legvision_pgdata:/var/lib/postgresql/data
-      - ./database/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql
+      - ./core/db/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d legvision"]
       interval: 10s

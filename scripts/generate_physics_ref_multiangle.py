@@ -221,7 +221,7 @@ def get_stable_poses_from_db_subprocess(part_ref):
 import sys, json
 sys.path.append('{project_root}')
 try:
-    from database import supabase_client
+    from core.db import supabase_client
     poses = supabase_client.get_stable_poses('{part_ref}')
     print(json.dumps(poses))
 except Exception as e:

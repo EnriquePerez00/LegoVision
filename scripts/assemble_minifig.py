@@ -101,7 +101,7 @@ def get_minifigs_from_test_sets():
     result = []
     seen_refs = set()
     try:
-        from database import set_catalog
+        from core.db import set_catalog
         for set_id in test_sets:
             for mfig in set_catalog.REAL_SETS.get(set_id, {}).get("minifigures", []):
                 ref = mfig["ref"]
@@ -229,7 +229,7 @@ def build_minifig(minifig_id, save_to_db=True):
     print("  GLB:", "OK" if glb_exists else "FALLO", "| DAT:", "OK" if dat_exists else "FALLO")
     if save_to_db:
         try:
-            from database import supabase_client
+            from core.db import supabase_client
             glb_data = None
             if glb_exists:
                 with open(glb_path, "rb") as gf:

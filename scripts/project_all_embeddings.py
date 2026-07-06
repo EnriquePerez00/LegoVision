@@ -10,7 +10,7 @@ import numpy as np
 project_root = "/Users/I764690/Code_personal/LegoVision"
 sys.path.append(project_root)
 
-from database import supabase_client
+from core.db import supabase_client
 from inference.knn_classifier import LegoProjectionHead
 
 def main():

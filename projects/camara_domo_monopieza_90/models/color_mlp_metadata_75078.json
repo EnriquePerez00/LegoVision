@@ -1,0 +1,15 @@
+{
+  "mean_cenital": [],
+  "scale_cenital": [],
+  "mean_lateral": [],
+  "scale_lateral": [],
+  "classes": [
+    "Black",
+    "Dark Bluish Gray",
+    "Light Bluish Gray",
+    "Red",
+    "Trans-Brown",
+    "Trans-Red",
+    "White"
+  ]
+}

@@ -98,6 +98,18 @@ def load_ldraw_part(part_ref):
     bpy.context.view_layer.objects.active = new_objs[0]
     if len(new_objs) > 1: bpy.ops.object.join()
     obj = bpy.context.active_object; obj.name = "Piece_" + part_ref
+    
+    # Detach parent empty and apply world matrix to mesh directly
+    mat = obj.matrix_world.copy()
+    obj.parent = None
+    obj.matrix_world = mat
+    
+    # Bake rotation
+    bpy.ops.object.select_all(action="DESELECT")
+    obj.select_set(True)
+    bpy.context.view_layer.objects.active = obj
+    bpy.ops.object.transform_apply(location=False, rotation=True, scale=True)
+    
     s = _C["ldraw_to_bu"]; obj.scale = (s, s, s)
     bpy.ops.object.transform_apply(scale=True)
     bpy.ops.object.origin_set(type="ORIGIN_GEOMETRY", center="BOUNDS")
@@ -113,6 +125,9 @@ def orient_piece_on_face(obj, contact_normal):
     else:
         axis = n.cross(target).normalized()
         obj.rotation_euler = mathutils.Matrix.Rotation(math.acos(dot), 4, axis).to_euler()
+    bpy.ops.object.select_all(action="DESELECT")
+    obj.select_set(True)
+    bpy.context.view_layer.objects.active = obj
     bpy.ops.object.transform_apply(rotation=True); bpy.context.view_layer.update()
     bbox = [obj.matrix_world @ mathutils.Vector(c) for c in obj.bound_box]
     obj.location = (0.0, 0.0, -min(v.z for v in bbox) + _C["settle_z"])
@@ -260,23 +275,28 @@ def analyze_part(part_ref, belt, n_dirs, debug=False):
 
 def save_to_db(part_ref, stable_poses, set_id=None):
     try:
-        from supabase_client import get_client
-        client = get_client()
-        client.table("stable_poses").delete().eq("part_ref", part_ref).execute()
-        for pose in stable_poses:
-            row = {"part_ref": part_ref, "pose_index": pose["pose_index"],
-                   "contact_normal": pose["contact_normal"],
-                   "face_class": pose["face_class"],
-                   "contact_area": pose["contact_area"],
-                   "orientation_quat": pose["orientation_quat"],
-                   "orientation_euler": pose["orientation_euler"],
-                   "simulation_passes": pose["passes"],
-                   "simulation_total": pose["total"],
-                   "stability_ratio": pose["stability_ratio"],
-                   "is_stable": True}
-            if set_id: row["set_id"] = set_id
-            client.table("stable_poses").upsert(row).execute()
-        print("  [DB] " + part_ref + ": " + str(len(stable_poses)) + " poses guardadas")
+        from core.db.supabase_client import get_connection
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM stable_poses WHERE part_ref = %s;", (part_ref,))
+                for pose in stable_poses:
+                    cur.execute("""
+                        INSERT INTO stable_poses (
+                            part_ref, pose_index, contact_normal, face_class, contact_area,
+                            orientation_quat, orientation_euler, simulation_passes, simulation_total,
+                            stability_ratio, is_stable
+                        ) VALUES (
+                            %s, %s, %s, %s, %s,
+                            %s, %s, %s, %s,
+                            %s, True
+                        );
+                    """, (
+                        part_ref, pose["pose_index"], pose["contact_normal"], pose["face_class"], pose["contact_area"],
+                        pose["orientation_quat"], pose["orientation_euler"], pose["passes"], pose["total"],
+                        pose["stability_ratio"]
+                    ))
+                conn.commit()
+        print("  [DB] " + part_ref + ": " + str(len(stable_poses)) + " poses guardadas en PostgreSQL")
     except Exception as e:
         print("  [DB WARN] " + part_ref + ": " + str(e))
 

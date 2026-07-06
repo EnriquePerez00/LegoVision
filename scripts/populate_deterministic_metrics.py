@@ -42,16 +42,14 @@ from ldraw_mesh_parser import get_triangles  # noqa: E402
 import psycopg2
 import psycopg2.extras
 
-DB_CFG = {
-    "host":     os.getenv("SUPABASE_DB_HOST", "localhost"),
-    "port":     int(os.getenv("SUPABASE_DB_PORT", "5434")),
-    "dbname":   os.getenv("SUPABASE_DB_NAME", "legvision"),
-    "user":     os.getenv("SUPABASE_DB_USER", "postgres"),
-    "password": os.getenv("SUPABASE_DB_PASSWORD", "legvision_pass_2024"),
-}
+# Permitir importar desde base de datos
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "database"))
+
+from core.db.supabase_client import get_connection
 
 LDU_TO_MM = 0.4
-CONTACT_PLANE_TOL_LDU = 0.4   # 0.16 mm de tolerancia para considerar "vertice en el plano"
+CONTACT_PLANE_TOL_LDU = 3.0   # 1.2 mm de tolerancia para considerar "vertice en el plano" (soporta piezas inclinadas)
 MIN_VERTS_FOR_HULL = 3
 
 
@@ -238,33 +236,31 @@ def fetch_poses(part_ref=None, set_id=None):
         where.append("COALESCE(set_id,'') = %s")
         params.append(set_id)
     sql = """
-        SELECT part_ref, pose_index, COALESCE(set_id,'') AS set_id_norm,
+        SELECT part_ref, pose_index,
                contact_normal, orientation_quat
         FROM stable_poses
     """
     if where:
         sql += " WHERE " + " AND ".join(where)
     sql += " ORDER BY part_ref, pose_index"
-    with psycopg2.connect(**DB_CFG) as conn, conn.cursor(
+    with get_connection() as conn, conn.cursor(
         cursor_factory=psycopg2.extras.RealDictCursor
     ) as cur:
         cur.execute(sql, params)
         return cur.fetchall()
 
 
-def update_pose(part_ref, pose_index, set_id_norm, margin_mm, tipping_ratio):
-    set_clause = "COALESCE(set_id,'') = %s"
-    with psycopg2.connect(**DB_CFG) as conn, conn.cursor() as cur:
-        cur.execute(
-            f"""
-            UPDATE stable_poses
-            SET support_polygon_margin_mm = %s,
-                tipping_energy_ratio = %s,
-                updated_at = NOW()
-            WHERE part_ref = %s AND pose_index = %s AND {set_clause}
-            """,
-            (margin_mm, tipping_ratio, part_ref, pose_index, set_id_norm),
-        )
+def update_pose(cur, part_ref, pose_index, margin_mm, tipping_ratio):
+    cur.execute(
+        """
+        UPDATE stable_poses
+        SET support_polygon_margin_mm = %s,
+            tipping_energy_ratio = %s,
+            updated_at = NOW()
+        WHERE part_ref = %s AND pose_index = %s
+        """,
+        (margin_mm, tipping_ratio, part_ref, pose_index),
+    )
 
 
 def main():
@@ -285,39 +281,56 @@ def main():
     n_ok = 0
     n_skip = 0
     n_fail = 0
-    for part_ref, poses in sorted(by_part.items()):
-        try:
-            tris = get_triangles(part_ref)
-        except Exception as e:
-            print(f"  [{part_ref}] mesh load FAIL: {e}")
-            n_skip += len(poses)
-            continue
-        if tris is None or len(tris) == 0:
-            print(f"  [{part_ref}] mesh sin triangulos -> skip {len(poses)} poses")
-            n_skip += len(poses)
-            continue
-        for r in poses:
-            cn = r.get("contact_normal")
-            if not cn or len(cn) != 3:
-                if args.debug:
-                    print(f"    {part_ref} pose {r['pose_index']}: contact_normal invalido")
-                n_skip += 1
-                continue
+
+    conn = get_connection()
+    cur = conn.cursor()
+
+    try:
+        for part_ref, poses in sorted(by_part.items()):
             try:
-                margin_mm, ratio = compute_pose_metrics(tris, cn)
+                tris = get_triangles(part_ref)
             except Exception as e:
-                if args.debug:
-                    print(f"    {part_ref} pose {r['pose_index']}: error {e}")
-                n_fail += 1
+                print(f"  [{part_ref}] mesh load FAIL: {e}")
+                n_skip += len(poses)
                 continue
-            update_pose(
-                part_ref, r["pose_index"], r["set_id_norm"], margin_mm, ratio
-            )
-            n_ok += 1
-            if args.debug:
-                print(f"    {part_ref} pose {r['pose_index']:2d}: "
-                      f"margin={margin_mm}  ratio={ratio}")
-        print(f"  [{part_ref}] {len(poses)} poses procesadas")
+            if tris is None or len(tris) == 0:
+                print(f"  [{part_ref}] mesh sin triangulos -> skip {len(poses)} poses")
+                n_skip += len(poses)
+                continue
+            for r in poses:
+                cn = r.get("contact_normal")
+                if not cn or len(cn) != 3:
+                    if args.debug:
+                        print(f"    {part_ref} pose {r['pose_index']}: contact_normal invalido")
+                    n_skip += 1
+                    continue
+                try:
+                    margin_mm, ratio = compute_pose_metrics(tris, cn)
+                except Exception as e:
+                    if args.debug:
+                        print(f"    {part_ref} pose {r['pose_index']}: error {e}")
+                    n_fail += 1
+                    continue
+                update_pose(
+                    cur, part_ref, r["pose_index"], margin_mm, ratio
+                )
+                n_ok += 1
+                if args.debug:
+                    print(f"    {part_ref} pose {r['pose_index']:2d}: "
+                          f"margin={margin_mm}  ratio={ratio}")
+            # Commit after each part_ref to save progress and keep transaction short
+            try:
+                conn.commit()
+            except Exception as e:
+                print(f"  [{part_ref}] commit FAIL: {e}")
+            print(f"  [{part_ref}] {len(poses)} poses procesadas")
+    finally:
+        try:
+            conn.commit()
+            conn.close()
+        except Exception:
+            pass
+
     print(
         f"[populate_deterministic_metrics] OK={n_ok}  skip={n_skip}  fail={n_fail}"
     )

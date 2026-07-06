@@ -49,7 +49,7 @@ sys.path.insert(0, os.path.join(PROJECT_ROOT, "scripts"))
 sys.path.insert(0, os.path.join(PROJECT_ROOT, "database"))
 
 from ldraw_mesh_parser import get_triangles  # type: ignore  # noqa: E402
-from supabase_client import get_connection  # type: ignore  # noqa: E402
+from core.db.supabase_client import get_connection  # type: ignore  # noqa: E402
 
 try:
     from shapely.geometry import Polygon

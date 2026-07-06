@@ -25,23 +25,40 @@ def _init():
         if os.path.isdir(d): _LDRAW_ROOTS.append(d)
 _init()
 
+_find_ldraw_file_cache = {}
+_dir_contents_cache = {}
+
 def find_ldraw_file(filename):
     fn = filename.replace("/", os.sep)
     # handle windows-style backslash in sub-paths from .dat files
     fn = fn.replace(chr(92)+chr(92), os.sep).replace(chr(92), os.sep)
     fn_low = fn.lower()
+    
+    if fn_low in _find_ldraw_file_cache:
+        return _find_ldraw_file_cache[fn_low]
+        
     bn_low = os.path.basename(fn_low)
     for root in _LDRAW_ROOTS:
         for sub in _SUBDIRS:
             for nm in [fn, fn_low]:
                 c = os.path.join(root, sub, nm)
-                if os.path.isfile(c): return c
+                if os.path.isfile(c):
+                    _find_ldraw_file_cache[fn_low] = c
+                    return c
         for sub in _SUBDIRS:
             d = os.path.join(root, sub)
             if not os.path.isdir(d): continue
-            for f in os.listdir(d):
-                if f.lower() == bn_low:
-                    return os.path.join(d, f)
+            if d not in _dir_contents_cache:
+                try:
+                    _dir_contents_cache[d] = {f.lower(): f for f in os.listdir(d)}
+                except Exception:
+                    _dir_contents_cache[d] = {}
+            contents = _dir_contents_cache[d]
+            if bn_low in contents:
+                c = os.path.join(d, contents[bn_low])
+                _find_ldraw_file_cache[fn_low] = c
+                return c
+    _find_ldraw_file_cache[fn_low] = None
     return None
 
 def _mat(tok):

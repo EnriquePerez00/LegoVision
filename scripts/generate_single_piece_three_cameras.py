@@ -93,7 +93,7 @@ def get_stable_poses_from_db_subprocess(part_ref):
 import sys, json
 sys.path.append('{project_root}')
 try:
-    from database import supabase_client
+    from core.db import supabase_client
     poses = supabase_client.get_stable_poses('{part_ref}')
     print(json.dumps(poses))
 except Exception as e:
@@ -253,7 +253,7 @@ def main():
     track_r.up_axis = 'UP_Y'
     
     # 6. Cargar catálogo de piezas del set
-    from database.set_catalog import REAL_SETS
+    from core.db.set_catalog import REAL_SETS
     if set_id not in REAL_SETS:
         print(f"[ERROR] Set {set_id} no encontrado en catálogo local.")
         sys.exit(1)

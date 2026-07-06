@@ -71,7 +71,38 @@ def get_ldraw_part_path(part_ref):
                         return os.path.join(parts_dir, f)
             except Exception:
                 pass
-                    
+                
+    # If not found, try to download from LDraw API
+    import urllib.request
+    import urllib.error
+    
+    project_ldraw = os.path.join(project_root_dir, "data", "ldraw")
+    if not os.path.exists(project_ldraw):
+        os.makedirs(os.path.join(project_ldraw, "parts"), exist_ok=True)
+        os.makedirs(os.path.join(project_ldraw, "p"), exist_ok=True)
+        
+    download_dir = os.path.join(project_ldraw, "parts")
+    os.makedirs(download_dir, exist_ok=True)
+    out_path = os.path.join(download_dir, exact_file)
+    
+    # Try official then unofficial
+    url_official = f"https://library.ldraw.org/library/official/parts/{exact_file}"
+    url_unofficial = f"https://library.ldraw.org/library/unofficial/parts/{exact_file}"
+    
+    for url in [url_official, url_unofficial]:
+        try:
+            print(f"[LDraw] Intentando descargar {exact_file} desde {url}...")
+            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+            with urllib.request.urlopen(req) as response:
+                content = response.read()
+                with open(out_path, 'wb') as f:
+                    f.write(content)
+            print(f"[LDraw] Descarga exitosa: {out_path}")
+            return out_path
+        except urllib.error.URLError as e:
+            continue
+            
+    print(f"[ERROR] No se pudo encontrar ni descargar la pieza {exact_file}.")
     return None
 
 def setup_physics_world():

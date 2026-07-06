@@ -13,7 +13,7 @@ from ultralytics import YOLO
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(project_root)
 
-from database import supabase_client
+from core.db import supabase_client
 
 RUN_ID = None
 best_map50 = 0.0
@@ -138,11 +138,20 @@ def main():
     parser.add_argument("--raw_dataset_dir", type=str, default=None)
     parser.add_argument("--processed_dataset_dir", type=str, default=None)
     parser.add_argument("--model_name", type=str, default="yolo11_piece_detector")
+    parser.add_argument("--remote", action="store_true", help="Desactiva Supabase y optimiza para entorno T4 remoto")
     
     args = parser.parse_args()
     
     # 1. Registrar inicio de entrenamiento en Base de Datos
-    if args.run_id:
+    if args.remote:
+        print("[LegoVision Train] Remote mode enabled: skipping Supabase database sync.")
+        RUN_ID = None
+        # Optimize default args for remote T4 if not explicitly passed
+        if args.device == ("mps" if torch.backends.mps.is_available() else "cpu"):
+            args.device = "cuda"
+        if args.batch == 16:
+            args.batch = 64
+    elif args.run_id:
         RUN_ID = args.run_id
         print(f"[LegoVision Train] Usando corrida de entrenamiento existente: {RUN_ID}")
     else:
@@ -161,14 +170,15 @@ def main():
         # 2. Utilizar el dataset existente
         raw_dataset_dir = args.raw_dataset_dir if args.raw_dataset_dir else os.path.join(project_root, "data", "raw_dataset")
         print(f"[LegoVision Train] Usando dataset local en {raw_dataset_dir}...")
-        supabase_client.update_training_progress(
-            run_id=RUN_ID,
-            current_epoch=0,
-            loss=0.0,
-            val_loss=0.0,
-            map50=0.0,
-            log_text="Iniciando preparación del dataset local...\n"
-        )
+        if RUN_ID:
+            supabase_client.update_training_progress(
+                run_id=RUN_ID,
+                current_epoch=0,
+                loss=0.0,
+                val_loss=0.0,
+                map50=0.0,
+                log_text="Iniciando preparación del dataset local...\n"
+            )
             
         # 3. Preparar carpetas train/val y YAML
         processed_dataset_dir = args.processed_dataset_dir if args.processed_dataset_dir else os.path.join(project_root, "data", "processed_dataset")
@@ -179,7 +189,8 @@ def main():
         
         # 4. Entrenar YOLO11
         print("[LegoVision Train] Cargando modelo base yolo11n.pt...")
-        supabase_client.update_training_progress(RUN_ID, 0, 0.0, 0.0, 0.0, "Cargando modelo base YOLO11 y preparando entrenamiento...\n")
+        if RUN_ID:
+            supabase_client.update_training_progress(RUN_ID, 0, 0.0, 0.0, 0.0, "Cargando modelo base YOLO11 y preparando entrenamiento...\n")
         
         model = YOLO("yolo11n.pt")
         
@@ -187,15 +198,21 @@ def main():
         model.add_callback("on_fit_epoch_end", on_fit_epoch_end)
         
         print(f"[LegoVision Train] Iniciando entrenamiento en {args.device}...")
+        
+        # Optimize hyperparams based on device
+        is_cuda = args.device == "cuda"
+        train_amp = True if is_cuda else False
+        train_workers = 4 if is_cuda else 2
+
         model.train(
             data=yaml_path,
-            epochs=35,          # Reducido de 50 a 35 (tus métricas ya convergen ahí)
-            batch=16,           # Mantén este batch que satura bien tus ~5.5GB de MPS
+            epochs=args.epochs,
+            batch=args.batch,
             patience=15,        # Detención temprana si no mejora durante 15 épocas
             imgsz=args.imgsz,
-            device="mps",       # M4 MPS
-            amp=False,          # AMP suele fallar en MPS actual
-            workers=2,          # Evita los picos de retraso de I/O en la memoria del M4
+            device=args.device,
+            amp=train_amp,
+            workers=train_workers,
             plots=False,        # Evita escrituras redundantes de imágenes en disco
             cache=True,         # Caché de imágenes en RAM para entrenar muchísimo más rápido
             project="LegoVision",
@@ -224,7 +241,8 @@ def main():
         else:
             print(f"[LegoVision Train WARNING] No se encontró el archivo best.pt en las rutas de Ultralytics.")
             
-        supabase_client.complete_training_run(RUN_ID, "completed", "Entrenamiento finalizado y pesos guardados con éxito.\n")
+        if RUN_ID:
+            supabase_client.complete_training_run(RUN_ID, "completed", "Entrenamiento finalizado y pesos guardados con éxito.\n")
 
         # ── Evaluación post-entrenamiento (Opción C: simulación física del set) ──
         sim_img  = os.path.join(project_root, "data", "synthetic_renders", "set_scatter_75078-1.png")

@@ -19,6 +19,7 @@ from psycopg2.extras import execute_values
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, project_root)
 sys.path.insert(0, os.path.join(project_root, "database"))
+sys.path.insert(0, os.path.join(project_root, "core", "db"))
 
 from dotenv import load_dotenv
 load_dotenv(override=True)
@@ -28,51 +29,36 @@ DB_CONFIG["gssencmode"] = "disable"
 
 BLENDER_PATH = os.getenv("BLENDER_PATH", "/Users/I764690/Applications/Blender.app/Contents/MacOS/Blender")
 
-# Piezas del set 75078-1 con sus colores
-SET_75078_1_PARTS = [
-    {"ref": "sw0614", "color": "#FFFFFF"},
-    {"ref": "3004", "color": "#A0A5A9"},
-    {"ref": "3001", "color": "#A0A5A9"},
-    {"ref": "3020", "color": "#A0A5A9"},
-    {"ref": "3022", "color": "#A0A5A9"},
-    {"ref": "2877", "color": "#1B1B1B"},
-    {"ref": "59900", "color": "#C91A09"},
-    {"ref": "3003", "color": "#A0A5A9"},
-    {"ref": "3002", "color": "#A0A5A9"},
-    {"ref": "3005", "color": "#A0A5A9"},
-    {"ref": "3010", "color": "#A0A5A9"},
-    {"ref": "3021", "color": "#A0A5A9"},
-    {"ref": "3023", "color": "#1B1B1B"},
-    {"ref": "3024", "color": "#1B1B1B"},
-    {"ref": "2420", "color": "#A0A5A9"},
-    {"ref": "3710", "color": "#A0A5A9"},
-    {"ref": "3622", "color": "#A0A5A9"},
-    {"ref": "3665", "color": "#1B1B1B"},
-    {"ref": "3039", "color": "#A0A5A9"},
-    {"ref": "4070", "color": "#A0A5A9"},
-    {"ref": "6141", "color": "#C91A09"},
-    {"ref": "15573", "color": "#A0A5A9"},
-    {"ref": "2412", "color": "#1B1B1B"},
-    {"ref": "3069", "color": "#A0A5A9"},
-    {"ref": "3068", "color": "#A0A5A9"},
-    {"ref": "60478", "color": "#1B1B1B"},
-    {"ref": "48336", "color": "#1B1B1B"},
-    {"ref": "32000", "color": "#A0A5A9"},
-    {"ref": "3700", "color": "#A0A5A9"},
-    {"ref": "3701", "color": "#A0A5A9"},
-    {"ref": "4032", "color": "#1B1B1B"},
-    {"ref": "3062", "color": "#A0A5A9"},
-    {"ref": "85984", "color": "#A0A5A9"},
-    {"ref": "54200", "color": "#A0A5A9"},
-    {"ref": "99206", "color": "#A0A5A9"},
-    {"ref": "3037", "color": "#A0A5A9"},
-    {"ref": "3298", "color": "#A0A5A9"},
-    {"ref": "11477", "color": "#A0A5A9"},
-    {"ref": "15068", "color": "#A0A5A9"},
-    {"ref": "98138", "color": "#C91A09"},
-    {"ref": "2431", "color": "#A0A5A9"},
-    {"ref": "6636", "color": "#A0A5A9"}
-]
+# Piezas a simular (se cargan dinámicamente desde la BD)
+def fetch_all_parts_from_db(only_missing=False):
+    conn = psycopg2.connect(**DB_CONFIG)
+    parts = []
+    try:
+        with conn.cursor() as cur:
+            if only_missing:
+                query = """
+                    SELECT DISTINCT part_ref, MAX(color_hex) as color_hex 
+                    FROM lego_set_parts 
+                    WHERE color_hex IS NOT NULL 
+                      AND part_ref NOT IN (SELECT DISTINCT part_ref FROM stable_poses)
+                    GROUP BY part_ref
+                """
+            else:
+                query = """
+                    SELECT DISTINCT part_ref, MAX(color_hex) as color_hex 
+                    FROM lego_set_parts 
+                    WHERE color_hex IS NOT NULL 
+                    GROUP BY part_ref
+                """
+            cur.execute(query)
+            for row in cur.fetchall():
+                parts.append({"ref": row[0], "color": row[1]})
+        return parts
+    except Exception as e:
+        print(f"Error fetching parts from DB: {e}")
+        return []
+    finally:
+        conn.close()
 
 
 def alter_db_schema():
@@ -140,7 +126,7 @@ from generate_synthetic_dataset import get_single_mesh_object
 
 part_ref = "{ref}"
 color_hex = "{color}"
-num_simulations = 250
+num_simulations = 100
 TARGET_SIZE = 1.6
 
 setup_physics_world()
@@ -168,6 +154,11 @@ belt.rigid_body.friction = 0.95
 belt.rigid_body.restitution = 0.02
 belt.rigid_body.use_margin = True
 belt.rigid_body.collision_margin = 0.0
+belt.rigid_body.kinematic = True  # Permitir animación del plano
+
+# Asegurar que el plano tenga keyframes
+belt.keyframe_insert(data_path="location", frame=1)
+belt.keyframe_insert(data_path="rotation_euler", frame=1)
 
 # Eliminar restos
 for o in list(bpy.context.scene.objects):
@@ -246,8 +237,23 @@ for i in range(num_simulations):
     pieces.append(obj_copy)
 
 # Simular físicas hasta que se estabilicen por completo
-for f in range(1, 121):
+for f in range(1, 151):
     bpy.context.scene.frame_set(f)
+    
+    # Añadir micro-vibración para volcar poses precarias
+    if f == 60:
+        belt.location.z += 0.5
+        belt.rotation_euler.x += 0.05
+        belt.rotation_euler.y += 0.05
+        belt.keyframe_insert(data_path="location", frame=f)
+        belt.keyframe_insert(data_path="rotation_euler", frame=f)
+    elif f == 62:
+        belt.location.z -= 0.5
+        belt.rotation_euler.x -= 0.05
+        belt.rotation_euler.y -= 0.05
+        belt.keyframe_insert(data_path="location", frame=f)
+        belt.keyframe_insert(data_path="rotation_euler", frame=f)
+        
     bpy.context.view_layer.update()
 
 # Aplicar transformaciones finales
@@ -454,7 +460,7 @@ with open("{sim_script_path}.json", "w", encoding="utf-8") as f:
         sim_script_path
     ]
     try:
-        res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=90)
+        res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=600)
         # Leer JSON resultante
         result_json_path = sim_script_path + ".json"
         if os.path.exists(result_json_path):
@@ -505,7 +511,17 @@ def save_poses_to_db(part_ref, poses, set_id="75078-1"):
         except:
             return 0.0
 
-    conn = psycopg2.connect(**DB_CONFIG)
+    conn = None
+    for attempt in range(5):
+        try:
+            conn = psycopg2.connect(**DB_CONFIG)
+            break
+        except psycopg2.OperationalError as e:
+            if attempt == 4:
+                print(f"❌ Error crítico de DB conectando tras 5 intentos: {e}")
+                return
+            time.sleep(2 + attempt * 2)
+
     try:
         with conn.cursor() as cur:
             # Eliminar previas
@@ -546,7 +562,6 @@ def save_poses_to_db(part_ref, poses, set_id="75078-1"):
                     p["simulation_total"],
                     p["stability_ratio"],
                     True,
-                    set_id,
                     p["energy_barrier_min"],
                     p["com_distance_to_boundary"],
                     area_mm2,
@@ -558,7 +573,7 @@ def save_poses_to_db(part_ref, poses, set_id="75078-1"):
                     INSERT INTO stable_poses (
                         part_ref, pose_index, contact_normal, face_class, contact_area,
                         orientation_quat, orientation_euler, simulation_passes,
-                        simulation_total, stability_ratio, is_stable, set_id,
+                        simulation_total, stability_ratio, is_stable,
                         energy_barrier_min, com_distance_to_boundary, zenith_observable_area,
                         lateral_height
                     ) VALUES %s;
@@ -574,6 +589,11 @@ def save_poses_to_db(part_ref, poses, set_id="75078-1"):
 
 
 def main():
+    import argparse
+    parser = argparse.ArgumentParser(description="Orquesta la simulación física en lote en Blender.")
+    parser.add_argument("--only-missing", action="store_true", help="Simular únicamente piezas que no tengan poses ya guardadas en la BD.")
+    args = parser.parse_args()
+
     t_start = time.time()
     print("==================================================")
     print("INICIANDO EJECUCIÓN MULTIPROCESO DE SIMULACIÓN FÍSICA")
@@ -581,21 +601,28 @@ def main():
     
     # 1. Configurar DB
     alter_db_schema()
-    # clear_stable_poses()
+    if args.only_missing:
+        print("[DB] Ejecutando en modo '--only-missing'. Se conservarán las poses estables existentes.")
+    else:
+        clear_stable_poses()
     
-    # 2. Configurar Workers (Límite del 70% de hilos de CPU. En 12 cores, usamos 8 workers)
+    # 2. Configurar Workers (Límite del 50% de hilos de CPU para dejar respiro a la DB)
     num_cores = 12
-    num_workers = int(num_cores * 0.7)
+    num_workers = 8
     print(f"Configurando Pool con {num_workers} procesos concurrentes...")
     
-    # 3. Lanzar ejecuciones concurrentes
+    # 3. Obtener piezas a procesar
+    parts_to_run = fetch_all_parts_from_db(only_missing=args.only_missing)
+    print(f"[DB] Se encontraron {len(parts_to_run)} piezas a simular.")
+
+    # 4. Lanzar ejecuciones concurrentes
     pool = Pool(processes=num_workers)
     
     # Seguir el progreso en tiempo real
-    results = pool.imap_unordered(run_single_part_sim, SET_75078_1_PARTS)
+    results = pool.imap_unordered(run_single_part_sim, parts_to_run)
     
     completed = 0
-    total = len(SET_75078_1_PARTS)
+    total = len(parts_to_run)
     
     for r in results:
         completed += 1

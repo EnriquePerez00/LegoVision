@@ -10,7 +10,7 @@ import numpy as np
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(project_root)
 
-from database import supabase_client
+from core.db import supabase_client
 
 def main():
     print("Cargando embeddings desde la base de datos...")

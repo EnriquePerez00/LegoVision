@@ -20,7 +20,7 @@ from training.index_synthetic_renders import (
     get_device, load_dinov2, get_transform, COLOR_HEX_TO_CODE,
     PREPROC_WORKERS, DEFAULT_BATCH_SIZE,
 )
-from database import supabase_client
+from core.db import supabase_client
 
 # Color cinta tras tone-mapping bajo Dome Light + Cross-Polarization.
 # Medido en esquinas de los renders (2026-06-13). Mismo valor en

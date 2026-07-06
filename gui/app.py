@@ -20,7 +20,7 @@ sys.path.append(project_root)
 from dotenv import load_dotenv
 load_dotenv(override=True)
 
-from database import supabase_client
+from core.db import supabase_client
 
 # Hilo de entrenamiento activo (solo uno a la vez)
 _training_thread: threading.Thread | None = None
@@ -156,7 +156,7 @@ class ApiBridge:
             if not set_data:
                 # 2. Si no existe en la BD, buscar en catálogo y persistir
                 print(f"[LegoVision GUI] Set {set_id} no encontrado en BD. Obteniendo de set_catalog y guardando...")
-                from database import set_catalog
+                from core.db import set_catalog
                 set_data = set_catalog.get_set_data(set_id)
                 supabase_client.save_set_to_db(set_id, set_data)
             
@@ -741,7 +741,7 @@ class ApiBridge:
                             
                         # Realizar comparación contra la base de datos desde la GUI
                         try:
-                            from database import supabase_client
+                            from core.db import supabase_client
                             db_embeddings = supabase_client.get_all_embeddings()
                             db_faces = {}
                             for emb in db_embeddings:
