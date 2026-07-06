@@ -345,7 +345,7 @@ def main():
 
             step_idx += 1
 
-        print(f"    [OK] {ref}: {N_STEPS_BELT} frames sobre cinta + {len(fall_frames)} frames en caída = {step_idx} total")
+        print(f"    [OK] {ref}: {N_STEPS_BELT} frames sobre cinta + {len(fall_coords)} frames en caída = {step_idx} total")
 
         # Limpiar
         bpy.data.objects.remove(part_obj, do_unlink=True)

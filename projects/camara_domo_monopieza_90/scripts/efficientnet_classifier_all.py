@@ -1100,5 +1100,5 @@ class LegoEfficientNetClassifierAll:
 
 if __name__ == "__main__":
     print("Testing LegoEfficientNetClassifier initialization...")
-    clf = LegoEfficientNetClassifier()
+    clf = LegoEfficientNetClassifierAll()
     print("Success! Model loaded.")

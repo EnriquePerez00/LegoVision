@@ -882,7 +882,7 @@ def run_evaluation(metadata_path, report_path, use_dinov2_color=False, use_emd_c
     log.info(f"Pipeline optimizado: {n_cpu_workers} workers CPU + GPU batch mode (M4)")
 
     def process_entry(entry):
-        nonlocal total_count, correct_count, iou_list
+        nonlocal total_count, correct_count
         sample_idx = entry["sample_index"]
         ref_gt = entry["ref"]
         color_code_gt = entry["color_code"]
