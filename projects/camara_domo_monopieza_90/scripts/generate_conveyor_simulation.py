@@ -78,9 +78,20 @@ def main():
     os.makedirs(pa.output_dir, exist_ok=True)
 
     # 1. Cargar cache de poses estables y base de datos de sets
-    cache_path = os.path.join(legovic_root, "projects", "2camaras_random_pieza_unica", "data", "stable_poses_cache.json")
-    if not os.path.isfile(cache_path):
-        print(f"[ERROR] No se encuentra {cache_path}")
+    possible_paths = [
+        os.path.join(project_root, "data", "stable_poses_cache.json"),
+        os.path.join(legovic_root, "data", "stable_poses_cache.json"),
+        os.path.join(legovic_root, "projects", "camara_domo_monopieza_90", "data", "stable_poses_cache.json"),
+        os.path.join(legovic_root, "projects", "2camaras_random_pieza_unica", "data", "stable_poses_cache.json")
+    ]
+    cache_path = None
+    for p in possible_paths:
+        if os.path.isfile(p):
+            cache_path = p
+            break
+            
+    if cache_path is None:
+        print(f"[ERROR] No se encuentra stable_poses_cache.json en ninguna de las rutas posibles: {possible_paths}")
         sys.exit(1)
     with open(cache_path, "r", encoding="utf-8") as f:
         pose_cache = json.load(f)
@@ -89,7 +100,28 @@ def main():
     
     # Recopilar todos los pares reales disponibles
     real_pairs = []
-    if pa.set_id == "random":
+    if pa.set_id == "database_all_colors":
+        pal_path = os.path.join(project_root, "data", "color_calibration_palette.json")
+        with open(pal_path, "r", encoding="utf-8") as f:
+            palette = json.load(f)
+        
+        valid_colors = [c for c in palette if c.get("color_hex", "").startswith("#") and len(c.get("color_hex", "")) == 7]
+        all_refs = list(pose_cache.keys())
+        
+        # Asignar un color de manera equitativa a geometrías aleatorias
+        random.shuffle(valid_colors)
+        
+        # Generar suficientes pares, distribuyendo los colores proporcionalmente
+        for i in range(max(pa.num_pieces * 2, len(valid_colors))):
+            color = valid_colors[i % len(valid_colors)]
+            ref = random.choice(all_refs)
+            real_pairs.append({
+                "ref": ref,
+                "color_code": str(color.get("color_code", "")),
+                "color_hex": color.get("color_hex", ""),
+                "color_name": color.get("color_name", "Unknown")
+            })
+    elif pa.set_id == "random":
         for s_id, s_data in REAL_SETS.items():
             for part in s_data.get("parts", []):
                 ref = part["ref"]

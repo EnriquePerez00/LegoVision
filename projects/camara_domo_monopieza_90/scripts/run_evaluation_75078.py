@@ -643,9 +643,9 @@ def compute_iou(boxA, boxB):
     return iou
 
 # ── Pipeline Principal ──
-def run_evaluation(metadata_path, report_path, use_dinov2_color=False, use_emd_color=False, color_classifier_name="75078-1"):
+def run_evaluation(metadata_path, report_path, use_dinov2_color=False, use_emd_color=False, color_classifier_name="75078-1", pipeline_mode="legacy"):
     import os
-    log_execution_header(log, "run_evaluation.py (Módulo camara_domo)", metadata=metadata_path, use_lateral=USE_LATERAL_CAMERA)
+    log_execution_header(log, "run_evaluation.py (Módulo camara_domo)", metadata=metadata_path, use_lateral=USE_LATERAL_CAMERA, pipeline_mode=pipeline_mode)
     t0 = _time.time()
 
     # Alpha Evolve Env Vars
@@ -1210,7 +1210,8 @@ def run_evaluation(metadata_path, report_path, use_dinov2_color=False, use_emd_c
                 measured_width=measured_width,
                 detected_studs=detected_studs,
                 is_simulation=entry.get("is_simulation", False),
-                yolo_conf=cen_yolo_conf
+                yolo_conf=cen_yolo_conf,
+                pipeline_mode=pipeline_mode
             )
 
         observation_candidates = []
@@ -1383,6 +1384,7 @@ if __name__ == "__main__":
     parser.add_argument("--use-dinov2-color", action="store_true", help="Usa el pipeline DINOv2 para clasificar el color en lugar del robusto estadístico.")
     parser.add_argument("--use-emd-color", action="store_true", help="Usa el clasificador Delta-E/EMD no paramétrico para clasificar el color.")
     parser.add_argument("--color-classifier", type=str, choices=["auto", "75078-1", "all_colors"], default="auto", help="Selecciona el clasificador de color a usar.")
+    parser.add_argument("--pipeline-mode", type=str, choices=["legacy", "direct_cnn"], default="legacy", help="Selecciona el modo de inferencia: legacy (K-NN) o direct_cnn (híbrido)")
     args = parser.parse_args()
-    run_evaluation(args.metadata, args.report, use_dinov2_color=args.use_dinov2_color, use_emd_color=args.use_emd_color, color_classifier_name=args.color_classifier)
+    run_evaluation(args.metadata, args.report, use_dinov2_color=args.use_dinov2_color, use_emd_color=args.use_emd_color, color_classifier_name=args.color_classifier, pipeline_mode=args.pipeline_mode)
 

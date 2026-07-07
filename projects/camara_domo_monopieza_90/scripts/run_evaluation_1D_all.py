@@ -679,6 +679,13 @@ def run_evaluation(metadata_path, report_path, use_dinov2_color=False, color_cla
             hierarchical_clf = ColorClassifierAllAdapted(device=device)
         except Exception as e:
             log.error(f"Error cargando clasificador de color all_adapted: {e}")
+    elif color_classifier_name in ("v2", "color_v2", "all_colors_v2"):
+        try:
+            from color_classifier_v2 import ColorClassifierV2
+            hierarchical_clf = ColorClassifierV2(device=device)
+            log.info("[ColorClassifierV2] Cargado (4-stage CIELAB sin MLP Router)")
+        except Exception as e:
+            log.error(f"Error cargando clasificador de color v2: {e}")
 
 
     ccm_path = os.path.join(project_root, "data", "ccm_dome_light.json")
@@ -1324,7 +1331,7 @@ if __name__ == "__main__":
     parser.add_argument("--metadata", type=str, required=True)
     parser.add_argument("--report", type=str, required=True)
     parser.add_argument("--use-dinov2-color", action="store_true", help="Usa el pipeline DINOv2 para clasificar el color en lugar del robusto estadístico.")
-    parser.add_argument("--color-classifier", type=str, choices=["auto", "75078-1", "all_colors"], default="auto", help="Selecciona el clasificador de color a usar.")
+    parser.add_argument("--color-classifier", type=str, choices=["auto", "75078-1", "all_colors", "v2", "color_v2", "all_colors_v2"], default="auto", help="Selecciona el clasificador de color a usar.")
     args = parser.parse_args()
     run_evaluation(args.metadata, args.report, use_dinov2_color=args.use_dinov2_color, color_classifier_name=args.color_classifier)
 

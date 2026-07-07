@@ -643,9 +643,9 @@ def compute_iou(boxA, boxB):
     return iou
 
 # ── Pipeline Principal ──
-def run_evaluation(metadata_path, report_path, use_dinov2_color=False, use_emd_color=False, color_classifier_name="75078-1", x_cam=248.18, z_cam=20.0, px_per_mm_lateral=10.6):
+def run_evaluation(metadata_path, report_path, use_dinov2_color=False, use_emd_color=False, color_classifier_name="75078-1", x_cam=248.18, z_cam=20.0, px_per_mm_lateral=10.6, pipeline_mode="legacy"):
     import os
-    log_execution_header(log, "run_evaluation.py (Módulo camara_domo)", metadata=metadata_path, use_lateral=USE_LATERAL_CAMERA)
+    log_execution_header(log, "run_evaluation.py (Módulo camara_domo)", metadata=metadata_path, use_lateral=USE_LATERAL_CAMERA, pipeline_mode=pipeline_mode)
     t0 = _time.time()
 
     # Alpha Evolve Env Vars
@@ -727,10 +727,10 @@ def run_evaluation(metadata_path, report_path, use_dinov2_color=False, use_emd_c
             log.error(f"Error cargando clasificador de color 75078: {e}")
     elif color_classifier_name == "all_colors":
         try:
-            from color_classifier_all_colors import ColorClassifierAllColors
-            hierarchical_clf = ColorClassifierAllColors(device=device)
+            from color_classifier_v2 import ColorClassifierV2
+            hierarchical_clf = ColorClassifierV2(use_l_bias=False)
         except Exception as e:
-            log.error(f"Error cargando clasificador de color all_colors: {e}")
+            log.error(f"Error cargando clasificador de color V2: {e}")
 
     emd_clf = None
     if use_emd_color:
@@ -933,11 +933,11 @@ def run_evaluation(metadata_path, report_path, use_dinov2_color=False, use_emd_c
                     # Reutiliza máscara SAM cacheada
                     mask_bin = _get_sam_mask(img_c, [px1, py1, px2, py2], (h_c, w_c))
 
-                    crop_tensor = estimate_color_cnn_crop(img_c, mask_bin, [px1, py1, px2, py2])
-                    if crop_tensor is not None:
-                        p_cen = hierarchical_clf.predict_cenital_probs(crop_tensor)
-
-                        if np.sum(p_cen) > 0:
+                    # Usa máscara SAM pura para extraer features 12D del ColorMLP
+                    feat = estimate_color_mlp_features(img_c, mask_bin, "cenital", ccm_params, is_simulation=True)
+                    if feat is not None:
+                        p_cen = hierarchical_clf.predict_gated_probs_cielab(feat, None, "cenital", is_simulation=True)
+                        if p_cen is not None and np.sum(p_cen) > 0:
                             conf_cen = float(np.max(p_cen))
                             if p_cen_sum is None:
                                 p_cen_sum = np.zeros_like(p_cen)
@@ -1181,7 +1181,8 @@ def run_evaluation(metadata_path, report_path, use_dinov2_color=False, use_emd_c
                 measured_width=measured_width,
                 detected_studs=detected_studs,
                 is_simulation=entry.get("is_simulation", False),
-                yolo_conf=cen_yolo_conf
+                yolo_conf=cen_yolo_conf,
+                pipeline_mode=pipeline_mode
             )
 
         observation_candidates = []
@@ -1357,6 +1358,7 @@ if __name__ == "__main__":
     parser.add_argument("--x-cam", type=float, default=320.0, help="Posición X de la cámara frontal en mm.")
     parser.add_argument("--z-cam", type=float, default=0.0, help="Altura Z de la cámara frontal en mm.")
     parser.add_argument("--px-per-mm-lateral", type=float, default=10.6, help="Escala de píxeles por mm en cámara frontal.")
+    parser.add_argument("--pipeline-mode", type=str, choices=["legacy", "direct_cnn"], default="legacy", help="Inference mode: legacy or direct_cnn")
     args = parser.parse_args()
     run_evaluation(
         args.metadata, 
@@ -1366,6 +1368,7 @@ if __name__ == "__main__":
         color_classifier_name=args.color_classifier,
         x_cam=args.x_cam,
         z_cam=args.z_cam,
-        px_per_mm_lateral=args.px_per_mm_lateral
+        px_per_mm_lateral=args.px_per_mm_lateral,
+        pipeline_mode=args.pipeline_mode
     )
 

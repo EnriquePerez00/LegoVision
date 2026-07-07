@@ -31,7 +31,7 @@ Modelos "ganadores" del pipeline monopieza cenital 90°.
 | `color_mlp_model_75078.pt` | idem restringido al set 75078 | idem | acc ≈ 99 % | idem |
 | `color_mlp_metadata.json` | Metadatos features/labels | — | — | idem |
 | `color_mlp_metadata_75078.json` | idem 75078 | — | — | idem |
-| `color_all.pt` | Clasificador cascada all-colors | Router+heads | — | `train_color_classifier_all_colors.py` |
+| `color_all.pt` | Clasificador cascada all-colors (legacy) | Router+heads | — | `train_color_classifier_all_colors.py` |
 | `color_all_metadata.json` | Metadatos | — | — | idem |
 | `color_router_all.pt` | Router jerárquico (familias) | MLP | — | `train_hierarchical_color.py` |
 | `color_router_all_metadata.json` | Metadatos router | — | — | idem |
@@ -39,6 +39,29 @@ Modelos "ganadores" del pipeline monopieza cenital 90°.
 | `color_router_all_colors_metadata.json` | Metadatos | — | — | idem |
 | `color_ref_embeddings.npz` | Refs DINOv2 (color-only) cache | np.savez | — | `save_dinov2_color_references.py` |
 | `color_classes.txt` | Mapping idx→color_id | — | — | idem |
+
+## Color V2 (4-stage CIELAB sin MLP Router) — 2026-06-07
+
+| Archivo | Rol | Arquitectura | Métrica | Comando |
+|---|---|---|---|---|
+| `material_type_classifier.pt` | Stage 2 de ColorClassifierV2: clasifica tipo de material | MLP 6→32→16→5 | acc ≥ 95% (sintético) | `train_material_type_classifier.py` |
+| `material_type_classifier_metadata.json` | Metadatos (mean/std/classes) | — | — | idem |
+
+**Uso de ColorClassifierV2 en evaluación:**
+```bash
+python scripts/run_evaluation_1D_all.py \
+    --metadata data/simulation_x5_1D_all/simulation_metadata.json \
+    --color-classifier v2 \
+    --report reports/eval_colorv2.json
+```
+
+**Mejoras sobre clasificador anterior (`all_colors`, 4.2% accuracy):**
+- Stage 0: pre-check determinista de material (sin MLP)
+- Stage 1: CIELAB directo contra paleta calibrada (CIEDE2000 ponderado por material)
+- Stage 2: MLP ligero 6D→5 para resolver ambigüedad de material (solo si ΔE>8)
+- Stage 3: resolución de homónimos determinista por mapa canónico
+
+**Accuracy proyectada:** ~50% color (vs 4.2% baseline)
 
 ## Modelos base NO trackeados (regenerables)
 
