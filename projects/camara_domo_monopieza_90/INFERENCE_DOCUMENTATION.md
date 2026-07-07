@@ -162,3 +162,37 @@ python scripts/test_belt_color.py
 | Fecha | Cambio |
 | :--- | :--- |
 | 2026-03-07 | Migrado color de cinta `#254154` → `#006064` (azul petróleo real). Fuente única de verdad en `scripts/scene_config.BELT_COLOR_HEX`. Refactor global del chromakey a `_belt_mask.py`. Test `test_belt_color.py`. Regenerados 100 renders del set 75078 con el nuevo color. |
+---
+
+## 9. ColorClassifierV2 — Arquitectura 4-Stage (2026-06-07)
+
+### Mejoras sobre el clasificador anterior (`all_colors`, 4.2% accuracy)
+
+| Stage | Descripción | Impacto |
+| :--- | :--- | :--- |
+| **Stage 0** | Pre-check determinista de material (TRANSPARENT/METALLIC/WHITE/BLACK) | Evita confusión Trans-Clear → White |
+| **Stage 1** | CIELAB Match directo contra paleta calibrada con CIEDE2000 ponderado | Elimina MLP Router (fuente principal de errores) |
+| **Stage 2** | MLP ligero 6D→5 clases de material (solo si ΔE top-1 > 8) | Resuelve ambigüedad alta |
+| **Stage 3** | Resolución determinista de homónimos por mapa canónico | Elimina colisiones Dark Green BL7/80, etc. |
+
+**Accuracy proyectada:** ~50% color (vs 4.2% baseline).
+
+### Uso en evaluación
+
+```bash
+cd projects/camara_domo_monopieza_90
+python scripts/run_evaluation_1D_all.py \
+    --metadata data/simulation_x5_1D_all/simulation_metadata.json \
+    --color-classifier v2 \
+    --report reports/eval_colorv2.json
+```
+
+### Fix F0.1: Chromakey turquesas
+
+`_belt_mask.py` actualizado con `s_bounds=(200, 255)` (era `(60, 255)`):
+- **Cinta #006064**: S=255 → **FILTRADA** ✓
+- **Dark Turquoise #00828E**: S≈243 en EEVEE, 4/7 pixels preservados ✓
+- **Light Turquoise #54A4AE**: S=71 → **NO filtrada** ✓
+
+**Test de integridad:** `python scripts/test_belt_color.py` (5/5 tests pasan)
+

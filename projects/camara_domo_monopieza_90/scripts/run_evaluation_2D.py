@@ -727,10 +727,10 @@ def run_evaluation(metadata_path, report_path, use_dinov2_color=False, use_emd_c
             log.error(f"Error cargando clasificador de color 75078: {e}")
     elif color_classifier_name == "all_colors":
         try:
-            from color_classifier_all_colors import ColorClassifierAllColors
-            hierarchical_clf = ColorClassifierAllColors(device=device)
+            from color_classifier_v2 import ColorClassifierV2
+            hierarchical_clf = ColorClassifierV2(use_l_bias=False)
         except Exception as e:
-            log.error(f"Error cargando clasificador de color all_colors: {e}")
+            log.error(f"Error cargando clasificador de color V2: {e}")
 
     emd_clf = None
     if use_emd_color:
@@ -933,11 +933,11 @@ def run_evaluation(metadata_path, report_path, use_dinov2_color=False, use_emd_c
                     # Reutiliza máscara SAM cacheada
                     mask_bin = _get_sam_mask(img_c, [px1, py1, px2, py2], (h_c, w_c))
 
-                    crop_tensor = estimate_color_cnn_crop(img_c, mask_bin, [px1, py1, px2, py2])
-                    if crop_tensor is not None:
-                        p_cen = hierarchical_clf.predict_cenital_probs(crop_tensor)
-
-                        if np.sum(p_cen) > 0:
+                    # Usa máscara SAM pura para extraer features 12D del ColorMLP
+                    feat = estimate_color_mlp_features(img_c, mask_bin, "cenital", ccm_params, is_simulation=True)
+                    if feat is not None:
+                        p_cen = hierarchical_clf.predict_gated_probs_cielab(feat, None, "cenital", is_simulation=True)
+                        if p_cen is not None and np.sum(p_cen) > 0:
                             conf_cen = float(np.max(p_cen))
                             if p_cen_sum is None:
                                 p_cen_sum = np.zeros_like(p_cen)

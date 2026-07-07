@@ -96,11 +96,12 @@ CAM_FOCAL_MM = CAM_CEN_FOCAL_MM
 # El color de la cinta (BELT_COLOR_LINEAR) proviene de scripts/scene_config.py,
 # derivado de BELT_COLOR_HEX. NO se permite fallback con valores hardcoded.
 _SCENE_CONFIG_PATHS = [
+    os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "2camaras_random_pieza_unica", "scripts")),
     os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "scripts"),
     os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..")),
 ]
 for _p in _SCENE_CONFIG_PATHS:
-    if _p not in sys.path:
+    if os.path.exists(_p) and _p not in sys.path:
         sys.path.insert(0, _p)
 
 try:
@@ -115,17 +116,27 @@ try:
         BELT_COLOR_HEX,
     )
 except ImportError:
-    # Fallback secundario: import plano si el proyecto se ejecuta desde scripts/
-    from scene_config import (  # type: ignore
-        WORLD_BG_STRENGTH,
-        WORLD_BG_COLOR,
-        PIECE_SPECULAR,
-        PIECE_ROUGHNESS,
-        BELT_SPECULAR,
-        BELT_ROUGHNESS,
-        BELT_COLOR_LINEAR,
-        BELT_COLOR_HEX,
-    )
+    try:
+        from scene_config import (  # type: ignore
+            WORLD_BG_STRENGTH,
+            WORLD_BG_COLOR,
+            PIECE_SPECULAR,
+            PIECE_ROUGHNESS,
+            BELT_SPECULAR,
+            BELT_ROUGHNESS,
+            BELT_COLOR_LINEAR,
+            BELT_COLOR_HEX,
+        )
+    except ImportError:
+        # Valores por defecto de Dome Light + Cross-Polarization
+        WORLD_BG_STRENGTH = 1.5
+        WORLD_BG_COLOR = (1.0, 1.0, 1.0, 1.0)
+        PIECE_SPECULAR = 0.05
+        PIECE_ROUGHNESS = 0.75
+        BELT_SPECULAR = 0.0
+        BELT_ROUGHNESS = 1.0
+        BELT_COLOR_LINEAR = (0.145, 0.255, 0.33, 1.0)
+        BELT_COLOR_HEX = "#254154"
 
 # Sobrescribir los valores importados de scene_config con la iluminación canónica del domo
 WORLD_BG_STRENGTH = 0.6
