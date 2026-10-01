@@ -30,7 +30,7 @@ ok "Docker: $(docker --version)"
 
 # --- 2. Instalar herramientas CLI ---
 banner "2/7 Instalando herramientas CLI"
-for pkg in git-lfs wget gh; do
+for pkg in git-lfs wget; do
     if brew list "$pkg" &>/dev/null; then
         ok "$pkg ya instalado"
     else

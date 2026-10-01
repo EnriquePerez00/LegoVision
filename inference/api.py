@@ -16,7 +16,7 @@ project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(project_root)
 
 from inference import config
-from database import supabase_client
+from core.db import supabase_client
 from inference.detector import LegoDetector
 
 # Cargar variables de entorno
